@@ -1022,7 +1022,7 @@ void import_csv(snac *user)
 void import_archive(snac *user)
 /* imports a Mastodon archive (ActivityPub format) from the archive/ folder */
 {
-    xs *ifn = xs_fmt("%s/archive/outbox.json", srv_basedir);
+    xs *ifn = xs_fmt("%s/import/archive/outbox.json", user->basedir);
     FILE *f;
 
     if ((f = fopen(ifn, "r")) == NULL) {
@@ -1203,7 +1203,7 @@ void import_archive(snac *user)
                     /* the Mastodon export uses relative paths like
                        /media_attachments/files/109/346/.../original/file.jpg */
                     if (xs_is_string(att_url) && xs_startswith(att_url, "/media_attachments/files/")) {
-                        xs *src_fn = xs_fmt("%s/archive%s", srv_basedir, att_url);
+                        xs *src_fn = xs_fmt("%s/import/archive%s", user->basedir, att_url);
                         FILE *sf;
 
                         if ((sf = fopen(src_fn, "rb")) != NULL) {
@@ -1321,7 +1321,7 @@ void import_archive(snac *user)
                             xs_fmt("Cannot fetch boosted post %s, skipping", boost_url));
                         n_boosts++;
                         continue;
-                    }
+                    }import/archive/bookmarks.json", user->
                 }
 
                 if (post != NULL) {
@@ -1369,7 +1369,7 @@ void import_archive(snac *user)
             const xs_list *b_items = xs_dict_get(bookmarks, "orderedItems");
             int bm_imported = 0;
 
-            if (xs_type(b_items) == XSTYPE_LIST) {
+            if (xs_type(b_iimport/archive/likes.json", user->
                 const char *bm_url;
                 xs_list_foreach(b_items, bm_url) {
                     if (!xs_is_string(bm_url))
