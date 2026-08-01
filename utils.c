@@ -1308,16 +1308,53 @@ void import_archive(snac *user)
         }
         else
         if (xs_is_string(act_type) && strcmp(act_type, "Announce") == 0) {
-            /* Announce (boost) - skip for now; these reference remote posts
-               that may no longer exist. We could try to fetch them, but it's
-               safer to skip. */
-            n_boosts++;
+            /* Announce (boost) — try to fetch the remote post */
+            const char *boost_url = xs_dict_get(v, "object");
+
+            if (xs_is_string(boost_url)) {
+                xs *post = NULL;
+
+                /* try locally first, then fetch */
+                if (!valid_status(object_get(boost_url, &post))) {
+                    if (!valid_status(activitypub_request(user, boost_url, &post))) {
+                        snac_log(user,
+                            xs_fmt("Cannot fetch boosted post %s, skipping", boost_url));
+                        n_boosts++;
+                        continue;
+                    }
+                }
+
+                if (post != NULL) {
+                    /* request the actor that created the post */
+                    const char *actor = get_atto(post);
+                    if (xs_type(actor) == XSTYPE_STRING)
+                        actor_request(user, actor, NULL);
+
+                    /* store and index the remote post */
+                    object_add_ow(boost_url, post);
+                    timeline_add(user, boost_url, post);
+
+                    /* create an Announce activity and register locally */
+                    xs *announce = msg_admiration(user, boost_url, "Announce");
+                    if (announce != NULL) {
+                        timeline_admire(user, boost_url, user->actor, 0, announce);
+                        object_add_ow(xs_dict_get(announce, "id"), announce);
+                        /* do NOT enqueue — don't spam followers with old boosts */
+                    }
+
+                    n_boosts++;
+
+                    if (dbglevel >= 1)
+                        snac_debug(user, 1,
+                            xs_fmt("Imported boost %d: %s", n_boosts, boost_url));
+                }
+            }
         }
         else
             n_skipped++;
     }
 
-    snac_log(user, xs_fmt("Archive import complete: %d posts, %d boosts skipped, %d other skipped",
+    snac_log(user, xs_fmt("Archive import complete: %d posts, %d boosts, %d other skipped",
             n_posts, n_boosts, n_skipped));
 
     /* import bookmarks if present */
