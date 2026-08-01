@@ -1019,6 +1019,420 @@ void import_csv(snac *user)
 }
 
 
+void import_archive(snac *user)
+/* imports a Mastodon archive (ActivityPub format) from the archive/ folder */
+{
+    xs *ifn = xs_fmt("%s/archive/outbox.json", srv_basedir);
+    FILE *f;
+
+    if ((f = fopen(ifn, "r")) == NULL) {
+        snac_log(user, xs_fmt("Cannot open archive file %s", ifn));
+        return;
+    }
+
+    snac_log(user, xs_fmt("Importing archive from %s...", ifn));
+
+    xs *outbox = xs_json_load(f);
+    fclose(f);
+
+    if (outbox == NULL) {
+        snac_log(user, xs_fmt("Error parsing archive file %s", ifn));
+        return;
+    }
+
+    const xs_list *items = xs_dict_get(outbox, "orderedItems");
+
+    if (xs_type(items) != XSTYPE_LIST) {
+        snac_log(user, xs_str_new("No orderedItems found in archive"));
+        return;
+    }
+
+    const xs_val *v;
+    int n_posts    = 0;
+    int n_boosts   = 0;
+    int n_skipped  = 0;
+
+    xs_list_foreach(items, v) {
+        if (xs_type(v) != XSTYPE_DICT)
+            continue;
+
+        const char *act_type = xs_dict_get(v, "type");
+
+        if (xs_is_string(act_type) && strcmp(act_type, "Create") == 0) {
+            /* get the note object from the activity */
+            const xs_dict *note = xs_dict_get(v, "object");
+
+            if (xs_type(note) != XSTYPE_DICT)
+                continue;
+
+            /* generate a new post ID */
+            xs *ntid = tid(0);
+            xs *new_id    = xs_fmt("%s/p/%s", user->actor, ntid);
+            xs *new_url   = xs_fmt("%s/p/%s", user->actor, ntid);
+            xs *act_id    = xs_fmt("%s/activity", new_id);
+
+            /* build the new note object */
+            xs *new_note = xs_dict_new();
+
+            new_note = xs_dict_append(new_note, "id",            new_id);
+            new_note = xs_dict_append(new_note, "type",          "Note");
+            new_note = xs_dict_append(new_note, "url",           new_url);
+
+            /* preserve the original publication date */
+            const char *published = xs_dict_get(v, "published");
+            if (xs_is_string(published))
+                new_note = xs_dict_append(new_note, "published", published);
+
+            /* rewrite attributedTo to the snac user */
+            new_note = xs_dict_append(new_note, "attributedTo", user->actor);
+
+            /* preserve content and contentMap */
+            const char *content = xs_dict_get(note, "content");
+            if (xs_is_string(content))
+                new_note = xs_dict_append(new_note, "content", content);
+
+            const xs_dict *content_map = xs_dict_get(note, "contentMap");
+            if (xs_type(content_map) == XSTYPE_DICT)
+                new_note = xs_dict_append(new_note, "contentMap", content_map);
+
+            /* preserve summary / CW */
+            const char *summary = xs_dict_get(note, "summary");
+            if (xs_is_string(summary))
+                new_note = xs_dict_append(new_note, "summary", summary);
+
+            /* preserve sensitive flag */
+            const xs_val *sensitive = xs_dict_get(note, "sensitive");
+            if (sensitive != NULL)
+                new_note = xs_dict_append(new_note, "sensitive", sensitive);
+
+            /* rewrite to and cc fields with snac follower URLs */
+            xs *followers_url = xs_fmt("%s/followers", user->actor);
+
+            /* determine visibility from original note */
+            const char *pub_addr = "https:/" "/www.w3.org/ns/activitystreams#Public";
+            const char *orig_to = xs_dict_get(note, "to");
+            const char *orig_cc = xs_dict_get(note, "cc");
+            int pub_in_to = 0;
+            int pub_in_cc = 0;
+
+            if (xs_type(orig_to) == XSTYPE_LIST) {
+                if (xs_list_in(orig_to, pub_addr) != -1)
+                    pub_in_to = 1;
+            }
+            else if (xs_is_string(orig_to) && strcmp(orig_to, pub_addr) == 0)
+                pub_in_to = 1;
+
+            if (xs_type(orig_cc) == XSTYPE_LIST) {
+                if (xs_list_in(orig_cc, pub_addr) != -1)
+                    pub_in_cc = 1;
+            }
+            else if (xs_is_string(orig_cc) && strcmp(orig_cc, pub_addr) == 0)
+                pub_in_cc = 1;
+
+            xs *new_to = xs_list_new();
+            xs *new_cc = xs_list_new();
+
+            if (pub_in_to) {
+                new_to = xs_list_append(new_to, pub_addr);
+                new_cc = xs_list_append(new_cc, followers_url);
+            }
+            else if (pub_in_cc) {
+                /* unlisted */
+                new_to = xs_list_append(new_to, followers_url);
+                new_cc = xs_list_append(new_cc, pub_addr);
+            }
+            else {
+                /* followers-only or mentioned-only; default to followers */
+                new_to = xs_list_append(new_to, followers_url);
+            }
+
+            new_note = xs_dict_append(new_note, "to", new_to);
+            new_note = xs_dict_append(new_note, "cc", new_cc);
+
+            /* preserve conversation */
+            const char *conversation = xs_dict_get(note, "conversation");
+            if (xs_is_string(conversation))
+                new_note = xs_dict_append(new_note, "conversation", conversation);
+
+            /* handle inReplyTo - keep the same reference */
+            const char *in_reply_to = xs_dict_get(note, "inReplyTo");
+            if (xs_is_string(in_reply_to))
+                new_note = xs_dict_append(new_note, "inReplyTo", in_reply_to);
+
+            /* handle tags - rewrite mentions that reference the old actor */
+            const xs_list *tags = xs_dict_get(note, "tag");
+            if (xs_type(tags) == XSTYPE_LIST) {
+                xs *new_tags = xs_list_new();
+                const xs_dict *tag;
+
+                xs_list_foreach(tags, tag) {
+                    if (xs_type(tag) != XSTYPE_DICT) {
+                        new_tags = xs_list_append(new_tags, tag);
+                        continue;
+                    }
+
+                    const char *tag_type = xs_dict_get(tag, "type");
+                    const char *tag_href = xs_dict_get(tag, "href");
+
+                    /* keep hashtags as-is; rewrite mentions if needed */
+                    if (xs_is_string(tag_type) && strcmp(tag_type, "Mention") == 0) {
+                        /* only keep mentions to other people, not self */
+                        if (xs_is_string(tag_href) && xs_startswith(tag_href, user->actor))
+                            continue; /* skip self-mentions */
+                    }
+
+                    new_tags = xs_list_append(new_tags, tag);
+                }
+
+                if (xs_list_len(new_tags) > 0)
+                    new_note = xs_dict_append(new_note, "tag", new_tags);
+            }
+
+            /* handle attachments - copy media files */
+            const xs_list *attachments = xs_dict_get(note, "attachment");
+            if (xs_type(attachments) == XSTYPE_LIST) {
+                xs *new_att = xs_list_new();
+                const xs_dict *att;
+
+                xs_list_foreach(attachments, att) {
+                    if (xs_type(att) != XSTYPE_DICT)
+                        continue;
+
+                    const char *att_url = xs_dict_get(att, "url");
+
+                    /* the Mastodon export uses relative paths like
+                       /media_attachments/files/109/346/.../original/file.jpg */
+                    if (xs_is_string(att_url) && xs_startswith(att_url, "/media_attachments/files/")) {
+                        xs *src_fn = xs_fmt("%s/archive%s", srv_basedir, att_url);
+                        FILE *sf;
+
+                        if ((sf = fopen(src_fn, "rb")) != NULL) {
+                            /* get file size and content */
+                            fseek(sf, 0, SEEK_END);
+                            int sz = ftell(sf);
+                            fseek(sf, 0, SEEK_SET);
+                            xs *data = xs_readall(sf);
+                            fclose(sf);
+
+                            if (sz > 0 && data != NULL) {
+                                /* generate a new static file ID */
+                                char rnd[32];
+                                xs_rnd_buf(rnd, sizeof(rnd));
+                                xs *hash = xs_md5_hex(rnd, sizeof(rnd));
+
+                                /* determine extension from original filename */
+                                xs *last_part = xs_split(att_url, "/");
+                                const char *fn_part = xs_list_get(last_part, -1);
+                                char *ext = NULL;
+                                if (fn_part != NULL)
+                                    ext = strrchr(fn_part, '.');
+
+                                xs *static_id = xs_fmt("post-%s%s", hash, ext ? ext : "");
+                                xs *static_url = xs_fmt("%s/s/%s", user->actor, static_id);
+
+                                /* store the file */
+                                static_put(user, static_id, data, sz);
+
+                                /* store alt text */
+                                const char *alt = xs_dict_get(att, "name");
+                                if (xs_is_string(alt) && *alt)
+                                    static_put_meta(user, static_id, alt);
+
+                                /* build new attachment entry */
+                                xs *new_a = xs_dup(att);
+                                new_a = xs_dict_set(new_a, "url", static_url);
+
+                                /* remove old Mastodon-specific fields if present */
+                                /* keep mediaType, name (alt text), blurhash, etc. */
+
+                                new_att = xs_list_append(new_att, new_a);
+
+                                snac_debug(user, 1,
+                                    xs_fmt("Imported media attachment %s -> %s", att_url, static_url));
+                            }
+                        }
+                        else
+                            snac_log(user, xs_fmt("Cannot open media file %s", src_fn));
+                    }
+                    else if (xs_is_string(att_url)) {
+                        /* external URL; keep it as-is */
+                        new_att = xs_list_append(new_att, att);
+                    }
+                }
+
+                if (xs_list_len(new_att) > 0)
+                    new_note = xs_dict_append(new_note, "attachment", new_att);
+            }
+
+            /* also preserve the 'source' field if it exists (for content warnings etc.) */
+            const char *source_content = xs_dict_get(note, "source");
+            if (xs_is_string(source_content))
+                new_note = xs_dict_append(new_note, "source", source_content);
+
+            /* preserve the 'mediaType' field */
+            const char *media_type = xs_dict_get(note, "mediaType");
+            if (xs_is_string(media_type))
+                new_note = xs_dict_append(new_note, "mediaType", media_type);
+
+            /* store the note object (allow overwrite) */
+            object_add_ow(new_id, new_note);
+
+            /* add to user's private timeline */
+            object_user_cache_add(user, new_id, "private");
+
+            /* if it's a public post, add to public timelines */
+            if (pub_in_to || pub_in_cc) {
+                object_user_cache_add(user, new_id, "public");
+
+                /* add to instance public timeline */
+                xs *ipt = xs_fmt("%s/public.idx", srv_basedir);
+                index_add(ipt, new_id);
+            }
+
+            /* store the Create activity */
+            xs *new_act = xs_dict_new();
+            new_act = xs_dict_append(new_act, "id",        act_id);
+            new_act = xs_dict_append(new_act, "type",      "Create");
+            new_act = xs_dict_append(new_act, "actor",     user->actor);
+            new_act = xs_dict_append(new_act, "published", xs_or(published, "@now"));
+            new_act = xs_dict_append(new_act, "to",        new_to);
+            new_act = xs_dict_append(new_act, "cc",        new_cc);
+            new_act = xs_dict_append(new_act, "object",    new_note);
+
+            object_add_ow(act_id, new_act);
+
+            n_posts++;
+
+            if (dbglevel >= 1)
+                snac_debug(user, 1, xs_fmt("Imported post %d: %s", n_posts, new_id));
+        }
+        else
+        if (xs_is_string(act_type) && strcmp(act_type, "Announce") == 0) {
+            /* Announce (boost) - skip for now; these reference remote posts
+               that may no longer exist. We could try to fetch them, but it's
+               safer to skip. */
+            n_boosts++;
+        }
+        else
+            n_skipped++;
+    }
+
+    snac_log(user, xs_fmt("Archive import complete: %d posts, %d boosts skipped, %d other skipped",
+            n_posts, n_boosts, n_skipped));
+
+    /* import bookmarks if present */
+    xs *bm_fn = xs_fmt("%s/archive/bookmarks.json", srv_basedir);
+    if ((f = fopen(bm_fn, "r")) != NULL) {
+        snac_log(user, xs_fmt("Importing bookmarks from bookmarks.json..."));
+
+        xs *bookmarks = xs_json_load(f);
+        fclose(f);
+
+        if (bookmarks != NULL) {
+            const xs_list *b_items = xs_dict_get(bookmarks, "orderedItems");
+            int bm_imported = 0;
+
+            if (xs_type(b_items) == XSTYPE_LIST) {
+                const char *bm_url;
+                xs_list_foreach(b_items, bm_url) {
+                    if (!xs_is_string(bm_url))
+                        continue;
+
+                    /* try to get the object locally or fetch it */
+                    xs *post = NULL;
+
+                    if (!valid_status(object_get(bm_url, &post))) {
+                        if (!valid_status(activitypub_request(user, bm_url, &post))) {
+                            snac_log(user, xs_fmt("Cannot fetch bookmark %s", bm_url));
+                            continue;
+                        }
+                    }
+
+                    if (post == NULL)
+                        continue;
+
+                    /* request the actor */
+                    const char *actor = get_atto(post);
+                    if (xs_type(actor) == XSTYPE_STRING)
+                        actor_request(user, actor, NULL);
+
+                    object_add_ow(bm_url, post);
+                    timeline_add(user, bm_url, post);
+                    bookmark(user, bm_url);
+
+                    bm_imported++;
+                }
+            }
+
+            snac_log(user, xs_fmt("Imported %d bookmarks", bm_imported));
+        }
+    }
+
+    /* import likes if present */
+    xs *lk_fn = xs_fmt("%s/archive/likes.json", srv_basedir);
+    if ((f = fopen(lk_fn, "r")) != NULL) {
+        snac_log(user, xs_fmt("Importing likes from likes.json..."));
+
+        xs *likes = xs_json_load(f);
+        fclose(f);
+
+        if (likes != NULL) {
+            const xs_list *l_items = xs_dict_get(likes, "orderedItems");
+            int lk_imported = 0;
+
+            if (xs_type(l_items) == XSTYPE_LIST) {
+                const char *lk_url;
+                xs_list_foreach(l_items, lk_url) {
+                    if (!xs_is_string(lk_url))
+                        continue;
+
+                    /* try to get the object locally or fetch it */
+                    xs *post = NULL;
+
+                    if (!valid_status(object_get(lk_url, &post))) {
+                        if (!valid_status(activitypub_request(user, lk_url, &post))) {
+                            snac_log(user, xs_fmt("Cannot fetch like target %s", lk_url));
+                            continue;
+                        }
+                    }
+
+                    if (post == NULL)
+                        continue;
+
+                    /* request the actor */
+                    const char *actor = get_atto(post);
+                    if (xs_type(actor) == XSTYPE_STRING)
+                        actor_request(user, actor, NULL);
+
+                    object_add_ow(lk_url, post);
+
+                    /* add to timeline and add a Like activity */
+                    timeline_add(user, lk_url, post);
+
+                    /* create a Like activity */
+                    xs *like_act = xs_dict_new();
+                    xs *like_id = xs_fmt("%s/l/%s", user->actor, tid(0));
+
+                    like_act = xs_dict_append(like_act, "id",     like_id);
+                    like_act = xs_dict_append(like_act, "type",   "Like");
+                    like_act = xs_dict_append(like_act, "actor",  user->actor);
+                    like_act = xs_dict_append(like_act, "object", lk_url);
+
+                    object_add_ow(like_id, like_act);
+
+                    /* register the admiration in the object's admire index */
+                    object_admire(lk_url, user->actor, 1);
+
+                    lk_imported++;
+                }
+            }
+
+            snac_log(user, xs_fmt("Imported %d likes", lk_imported));
+        }
+    }
+}
+
+
 static int top_ten_sort(const void *v1, const void *v2)
 {
     const xs_list *l1 = *(const xs_list **)v1;

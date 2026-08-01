@@ -69,6 +69,7 @@ int usage(const char *cmd)
         "alias {basedir} {uid} {account}      Sets account (@user@host or actor url) as an alias\n"
         "migrate {basedir} {uid}              Migrates to the account defined as the alias\n"
         "import_csv {basedir} {uid}           Imports data from CSV files\n"
+        "import_archive {basedir} {uid}       Imports a Mastodon archive (ActivityPub format)\n"
         "import_list {basedir} {uid} {file}   Imports a Mastodon CSV list file\n"
         "import_block_list {basedir} {uid} {file} Imports a Mastodon CSV block list file\n"
         "lists {basedir} {uid}                Returns the names of the lists created by the user\n"
@@ -324,6 +325,11 @@ int main(int argc, char *argv[])
 
     if (strcmp(cmd, "import_csv") == 0) { /** **/
         import_csv(&snac);
+        return 0;
+    }
+
+    if (strcmp(cmd, "import_archive") == 0) { /** **/
+        import_archive(&snac);
         return 0;
     }
 
