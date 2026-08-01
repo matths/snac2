@@ -1321,7 +1321,7 @@ void import_archive(snac *user)
                             xs_fmt("Cannot fetch boosted post %s, skipping", boost_url));
                         n_boosts++;
                         continue;
-                    }import/archive/bookmarks.json", user->
+                    }
                 }
 
                 if (post != NULL) {
@@ -1358,7 +1358,7 @@ void import_archive(snac *user)
             n_posts, n_boosts, n_skipped));
 
     /* import bookmarks if present */
-    xs *bm_fn = xs_fmt("%s/archive/bookmarks.json", srv_basedir);
+    xs *bm_fn = xs_fmt("%s/import/archive/bookmarks.json", user->basedir);
     if ((f = fopen(bm_fn, "r")) != NULL) {
         snac_log(user, xs_fmt("Importing bookmarks from bookmarks.json..."));
 
@@ -1369,7 +1369,7 @@ void import_archive(snac *user)
             const xs_list *b_items = xs_dict_get(bookmarks, "orderedItems");
             int bm_imported = 0;
 
-            if (xs_type(b_iimport/archive/likes.json", user->
+            if (xs_type(b_items) == XSTYPE_LIST) {
                 const char *bm_url;
                 xs_list_foreach(b_items, bm_url) {
                     if (!xs_is_string(bm_url))
@@ -1406,7 +1406,7 @@ void import_archive(snac *user)
     }
 
     /* import likes if present */
-    xs *lk_fn = xs_fmt("%s/archive/likes.json", srv_basedir);
+    xs *lk_fn = xs_fmt("%s/import/archive/likes.json", user->basedir);
     if ((f = fopen(lk_fn, "r")) != NULL) {
         snac_log(user, xs_fmt("Importing likes from likes.json..."));
 
