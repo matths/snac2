@@ -4,6 +4,8 @@
 
 A simple, minimalistic ActivityPub instance
 
+> **Note:** This is a fork. The original project is at [https://codeberg.org/grunfink/snac2](https://codeberg.org/grunfink/snac2).
+
 ## Features
 
 - Lightweight, minimal dependencies
