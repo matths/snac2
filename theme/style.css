@@ -32,8 +32,23 @@
   caret-color: var(--color-primary);
 }
 
+/* The line along the top of the page, as on matthias.dittgen.name. It is fixed
+   rather than a border on html so it stays put while the page scrolls. Drawn as
+   a fixed pseudo-element because an out-of-flow box is not a grid item, so it
+   does not disturb the columns below. */
+body::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background-color: var(--color-primary);
+  z-index: 100;
+}
+
 body {
-  max-width: 90em;
+  max-width: 900px;
   margin: 0 auto;
   line-height: 1.5;
   padding: 0.8em 0;
@@ -45,9 +60,25 @@ body {
   background-color: var(--color-background);
   color: var(--color-foreground);
   display: grid;
-  grid-template-columns: 25em 40em 25em;
-  grid-template-rows: minmax(10px, fit-content);
+  /* Two columns: a 1/3 sidebar and a 2/3 stream, 900px together -- the width of
+     the content on matthias.dittgen.name -- centred. The rows carry the sidebar
+     items; the stream spans all of them, and the trailing 1fr row takes up
+     whatever the stream has left over, so a short sidebar never stretches the
+     rows above it.
+
+     minmax(0, ...) and not a plain fr: a bare fr is really minmax(auto, fr), and
+     that auto minimum lets a track grow past its share when something inside it
+     cannot shrink -- a long unbroken URL, a wide <pre>, a table. The admin and
+     people pages have such content, and it widened the sidebar there, so the
+     two columns stopped matching the other pages. A zero minimum means the
+     tracks keep their 1:2 share on every page. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  grid-template-rows: repeat(6, max-content) 1fr;
   gap: 0 1.5em;
+  align-items: start;
+  /* Anchors .snac-top-nav > .snac-avatar, which sits inside the nav but belongs
+     beside the profile card at the top of the sidebar. See that rule. */
+  position: relative;
 }
 
 sup {
@@ -214,8 +245,8 @@ img {
 }
 
 #clear {
-  grid-column: 3 / 4;
-  grid-row: 1;
+  grid-column: 1 / 2;
+  grid-row: 6;
 }
 
 #clear input {
@@ -276,13 +307,13 @@ input[class^="snac-btn-"]:hover {
   color: var(--color-muted);
 }
 
+/* The profile card. It was the top of the right-hand column, which no longer
+   exists, so it now leads the sidebar. */
 .snac-top-user {
   padding-bottom: 2em;
-  grid-column: 3 / 4;
+  grid-column: 1 / 2;
   grid-row: 1;
   height: fit-content;
-  position: sticky;
-  top: 1em;
 }
 
 .snac-top-user-name {
@@ -348,14 +379,13 @@ input[class^="snac-btn-"]:hover {
   font-size: 0.6rem;
 }
 
+/* This used to share column 1 row 1 with .snac-top-nav and was pushed clear of
+   it with a 5em top margin. It has a row of its own now, so that is gone. */
 .snac-top-controls {
   padding-bottom: 1.5em;
   grid-column: 1 / 2;
-  grid-row: 1;
-  margin-top: 5em;
+  grid-row: 3;
   height: fit-content;
-  position: sticky;
-  top: 6em;
   scrollbar-width: none;
   overflow-y: scroll;
 }
@@ -417,12 +447,13 @@ input[class^="snac-btn-"]:hover {
   text-decoration: underline;
 }
 
+/* Sits below the profile card. It used to be sticky, but a sticky box only
+   travels within its own grid area, and that area is now exactly as tall as the
+   nav itself -- so it would do nothing. */
 .snac-top-nav {
   grid-column: 1 / 2;
-  grid-row: 1;
+  grid-row: 2;
   text-transform: capitalize;
-  position: sticky;
-  top: 1em;
   height: fit-content;
   color: var(--color-background);
 }
@@ -438,17 +469,25 @@ input[class^="snac-btn-"]:hover {
   margin: 0 0.2em;
 }
 
+/* The user's avatar lives in the nav but is drawn beside the profile card: the
+   card's name and id are indented to leave room for it. It used to be shoved
+   there with a margin of 68em, which only landed in the right place because the
+   card happened to be the third column. The card leads the sidebar now, so it
+   is anchored to the top left of body (position: relative, above) instead. */
 .snac-top-nav>.snac-avatar {
-  margin-left: 68em;
   position: absolute;
+  left: 0;
+  top: 0.8em;
   width: 3.2em;
   height: 3.2em;
 }
 
 .snac-posts {
   grid-column: 2 / 3;
-  grid-row: 1;
-  max-width: 40em;
+  /* Spans every sidebar row, so the stream is exactly as tall as its content
+     and the sidebar items stay at the top of the page. */
+  grid-row: 1 / 8;
+  max-width: 100%;
 }
 
 .snac-post {
@@ -630,9 +669,9 @@ input[class^="snac-btn-"]:hover {
   border-radius: var(--border-radius);
   padding: 0 2em;
   margin-bottom: 1.2em;
-  grid-column: 3 / 4;
-  grid-row: 1;
-  align-self: end;
+  grid-column: 1 / 2;
+  grid-row: 5;
+  align-self: start;
 }
 
 .snac-history>ul {
@@ -675,14 +714,18 @@ input[class^="snac-btn-"]:hover {
   margin-left: 0.5em;
 }
 
+/* The last row is the space the stream leaves over, so aligning to its end keeps
+   the footer at the foot of the page -- where it sat when it was the bottom of
+   the right-hand column. sticky with it, so on a short window (where the page
+   scrolls rather than the stream) the footer still sits at the bottom of the
+   visible space instead of scrolling out of sight. */
 .snac-footer {
-  margin-top: 2em;
   font-size: 75%;
-  grid-column: 3 / 4;
-  grid-row: 2;
-  justify-content: end;
-  align-content: end;
-  margin-left: auto;
+  grid-column: 1 / 2;
+  grid-row: 7;
+  align-self: end;
+  position: sticky;
+  bottom: 0;
 }
 
 .snac-poll-result {
@@ -706,14 +749,14 @@ input[class^="snac-btn-"]:hover {
   border-left: 2px solid var(--color-secondary);
 }
 
+/* columns: 2 rather than 3 -- the sidebar is narrower than the old right-hand
+   column was, and a third column of 7em-wide links would not fit. */
 .snac-list-of-lists {
   list-style: none;
-  grid-column: 3 / 4;
-  grid-row: 1;
-  margin-top: 5em;
-  columns: 3;
-  position: sticky;
-  top: 5.9em;
+  grid-column: 1 / 2;
+  grid-row: 4;
+  margin-top: 1.5em;
+  columns: 2;
   height: fit-content;
 }
 
@@ -766,7 +809,7 @@ body>p {
   display: flex;
   flex-direction: column;
   grid-column: 2 / 3;
-  grid-row: 2;
+  grid-row: 8;
 }
 
 body>p>a:nth-child(1) {
@@ -782,11 +825,92 @@ body>p>a:nth-child(1) {
   margin: 0 0.3em;
 }
 
-@media (max-width: 768px) {
+/* On a window with room for the sidebar, the page itself is exactly the window
+   and only the stream scrolls. That is what actually holds the left column and
+   the top line still: snac puts every sidebar item directly in the grid, with no
+   element wrapping them, and position: sticky cannot hold a group of siblings
+   together -- each one would need its own offset, and these heights are not
+   stable (the nav is 21px on the timeline and 89px on the private pages, and the
+   profile card grows with the bio). There is nothing dependable to tune against,
+   so instead nothing in the grid scrolls at all.
+
+   On a shorter window the sidebar would be cut off with no way to reach its end,
+   so below this height the page scrolls normally and the sidebar moves with it. */
+@media (min-width: 769px) and (min-height: 600px) {
+  html {
+    height: 100%;
+  }
+
   body {
+    height: 100%;
+    overflow: hidden;
+    /* An eighth row, max-content: the "Back to top / More" line lives there and
+       should stay visible under the stream rather than scroll out of the 1fr
+       row that the stream itself occupies. */
+    grid-template-rows: repeat(6, max-content) minmax(0, 1fr) max-content;
+  }
+
+  /* Stretch rather than align to start, so the stream fills its rows and scrolls
+     inside them instead of growing the page. min-height: 0 undoes the automatic
+     minimum that would otherwise let its content set the height. */
+  body>.snac-posts {
+    align-self: stretch;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  /* The private page's controls can be opened into an 89vh list, which no longer
+     fits once the page is window height, so they are given a slice of the window
+     and scroll within it instead. */
+  .snac-top-controls {
+    max-height: 35vh;
+    overflow-y: auto;
+  }
+
+  .snac-top-controls:has(details[open]) {
+    height: auto;
+  }
+}
+
+@media (max-width: 768px) {  body {
     display: flex;
     flex-direction: column;
-    padding: 0 0.8em;
+    /* Vertical padding restored: it used to be dropped entirely, but the page
+       now has a line across the top and the content should not butt against it. */
+    padding: 0.5em 0.8em;
+  }
+
+  /* One column, so the sidebar items have to be put back in order: the column
+     and row assignments above do not apply in flex layout, and the markup has
+     the nav before the profile card. These orders lead with the sidebar, in the
+     order it appears on the desktop, and send the footer last. */
+  .snac-top-user {
+    order: -7;
+  }
+
+  .snac-top-nav {
+    order: -6;
+  }
+
+  .snac-top-controls {
+    order: -5;
+  }
+
+  .snac-list-of-lists {
+    order: -4;
+  }
+
+  .snac-history {
+    order: -3;
+  }
+
+  #clear {
+    order: -2;
+  }
+
+  .snac-footer {
+    order: 1;
   }
 
   .snac-posts {
@@ -817,7 +941,8 @@ body>p>a:nth-child(1) {
     height: fit-content;
   }
 
-  .snac-top-user,
+  /* The profile card used to be hidden at this width too; it leads the page
+     now, so only the history box and the nav's out-of-place avatar are hidden. */
   .snac-history,
   .snac-top-nav>.snac-avatar {
     display: none;
