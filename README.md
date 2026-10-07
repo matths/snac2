@@ -155,6 +155,26 @@ file's bytes separately, and a tree restored from one has a link count of 1
 everywhere — snac would then garbage collect live posts. The playbook counts the
 hard links in the archive and fails when there are none.
 
+An archive is around 125 MB, and almost none of that is slack: roughly half is
+the instance's own uploaded media, which is video and so does not compress, and
+the rest is federated objects that would otherwise have to be re-fetched from
+origins that may be gone. So the collection is bounded by *count* rather than by
+making each archive smaller. `snac_backup_keep` (3) newest archives are kept in
+`~/.snac2/`; older ones are removed once a new one has been fetched, and the
+summary reports what the collection now holds.
+
+Each archive is complete and restores on its own — nothing is incremental or
+chained to a predecessor, so no archive depends on any other one being present.
+To restore:
+
+```bash
+sudo systemctl stop snac
+sudo mv /home/snac/data /home/snac/data.broken        # keep the bad one aside
+sudo tar xzf ~/.snac2/snac-backup-<stamp>.tar.gz -C /home/snac
+sudo chown -R snac:snac /home/snac/data
+sudo systemctl start snac
+```
+
 `site.yml` never touches the instance directory, with one exception: the theme at
 `theme/style.css`. It only ever existed on the host, so it is versioned here and
 installed on every deploy. snac reads it on each page render, so a theme change

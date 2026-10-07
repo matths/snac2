@@ -46,3 +46,15 @@ snac_backup_excludes: [archive, error, log]
 # Where backups are collected on this workstation. One file per run, never
 # overwritten: a backup that has been replaced is no longer a backup.
 snac_backup_dir: "{{ lookup('env', 'HOME') }}/.snac2"
+
+# How many of them to keep. An archive is around 125 MB and nearly all of that
+# is data rather than slack -- about half is the instance's own uploaded media,
+# which is video and so does not compress, and the rest is federated objects it
+# would have to re-fetch from origins that may be gone. There is no honest way
+# to make one much smaller, so the collection is bounded by count instead.
+#
+# Each archive is complete and restores on its own. Nothing here is incremental
+# or chained to a predecessor, deliberately: a chain saves space but makes the
+# most recent state depend on every archive before it, and a backup that needs
+# its predecessors is not a backup.
+snac_backup_keep: 3

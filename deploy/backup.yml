@@ -158,9 +158,45 @@
         path: "{{ remote_archive }}"
         state: absent
 
+    # ----------------------------------------------------------- retention --
+    # Names are timestamps, so sorting them sorts them in time, and the archive
+    # fetched above is always the newest -- which is what makes "drop everything
+    # but the newest few" structurally unable to touch this run's output.
+    - name: See what is in the collection
+      ansible.builtin.find:
+        paths: "{{ snac_backup_dir }}"
+        patterns: "snac-backup-*.tar.gz"
+        file_type: file
+      register: backups
+      delegate_to: localhost
+      become: false
+
+    # Newest first, then everything past the first snac_backup_keep. Fewer
+    # archives than that yields an empty slice, so nothing is deleted.
+    - name: Drop everything beyond the newest {{ snac_backup_keep }}
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop: "{{ (backups.files | map(attribute='path') | sort | reverse | list)[snac_backup_keep:] }}"
+      delegate_to: localhost
+      become: false
+
+    - name: What is left
+      ansible.builtin.find:
+        paths: "{{ snac_backup_dir }}"
+        patterns: "snac-backup-*.tar.gz"
+        file_type: file
+      register: backups_kept
+      delegate_to: localhost
+      become: false
+
     - name: Summary
       ansible.builtin.debug:
         msg:
           - "backup:  {{ local_archive }}"
           - "contents: {{ contents.stdout_lines | join(', ') }}"
+          - >-
+            kept:    {{ backups_kept.files | length }} archive(s),
+            {{ (backups_kept.files | map(attribute='size') | sum / 1048576) | round(1) }} MB
+            in {{ snac_backup_dir }}
           - "restore: stop {{ snac_unit }}, then extract the archive into {{ snac_home }}"
