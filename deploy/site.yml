@@ -92,6 +92,23 @@
         # make writes ./snac, which is snac_bin, so there is no separate install
         # step. curl and openssl headers are in the image (libcurl4-openssl-dev,
         # libssl-dev), which is why nothing is installed here.
+        #
+        # Clean first, and it is not optional. Upstream's Makefile has no header
+        # dependencies -- there is a `dep` target, but nothing wires it in -- so
+        # moving the checkout to a new revision rebuilds only the .c files that
+        # changed and links the rest against objects compiled months earlier
+        # against older system headers. That fails confusingly: objects built
+        # before the host's OpenSSL was last updated reference EVP_PKEY_size,
+        # which libcrypto no longer exports, while a fresh compile of the same
+        # source calls EVP_PKEY_get_size, which it does. One full rebuild is
+        # cheaper than that class of failure.
+        - name: Clean out the previous revision's objects  # noqa: command-instead-of-module
+          ansible.builtin.command:
+            cmd: make clean
+            chdir: "{{ snac_prefix }}"
+          changed_when: true
+          check_mode: false
+
         - name: Build it  # noqa: command-instead-of-module
           ansible.builtin.command:
             cmd: make
