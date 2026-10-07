@@ -1,0 +1,42 @@
+---
+# Host-specific knobs for the snac instance. This file is committed, so nothing
+# sensitive belongs in it: the instance's key lives in the instance directory and
+# is covered by the backup, not by this repository.
+
+snac_user: snac
+snac_group: snac
+
+# The home holds the instance directory and the unix socket certflow routes
+# social.dittgen.name to. Keep both in step with systemd/snac.service and with
+# certflow's own routing table.
+snac_home: /home/snac
+snac_basedir: "{{ snac_home }}/data"
+snac_socket: "{{ snac_home }}/socket"
+snac_unit: snac
+
+# Where snac is built, and the binary the unit runs -- the unit names that path
+# directly, so it is part of the interface. Keep in step with
+# systemd/snac.service.
+snac_prefix: /opt/snac2
+snac_bin: "{{ snac_prefix }}/snac"
+
+# The one file inside the instance directory that this repository owns. The theme
+# only ever existed there: snac writes its own built-in default when the file is
+# missing and never touches it again, so it is instance content rather than code.
+# It is tracked as theme/style.css and a deploy installs it; everything else in
+# the directory belongs to snac and is left strictly alone.
+snac_theme: "{{ snac_basedir }}/style.css"
+
+# Probed through certflow over real TLS at the end of a deploy, so a release that
+# never reaches the internet fails the run.
+snac_probe_host: social.dittgen.name
+
+# Directories inside the instance directory that a backup skips. snac's own
+# documentation calls archive/ and error/ debugging-only, and archive/ logs every
+# message in and out, so it can dwarf everything worth keeping. None of them is
+# state.
+snac_backup_excludes: [archive, error, log]
+
+# Where backups are collected on this workstation. One file per run, never
+# overwritten: a backup that has been replaced is no longer a backup.
+snac_backup_dir: "{{ lookup('env', 'HOME') }}/.snac2"

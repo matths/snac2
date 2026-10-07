@@ -1,0 +1,31 @@
+[Unit]
+# This is the unit that is already running on the host, tracked here so a deploy
+# installs it rather than leaving it to drift. The upstream examples in
+# examples/snac.service and examples/snac-global.service are templates that do
+# not fit this instance: the first is a systemd *user* service, and the second
+# uses DynamicUser and StateDirectory, while this instance lives in a real
+# account's home and shares its socket with the proxy.
+Description=Snac ActivityPub server
+After=network.target
+
+[Service]
+Type=simple
+User=snac
+Group=snac
+
+# Keep both in step with snac_basedir in deploy/group_vars/all.yml.
+WorkingDirectory=/home/snac/data
+Environment=HOME=/home/snac/data
+
+# The socket the proxy connects to is not named here. snac takes it from the
+# "address" field of the instance's server.json -- an address starting with /
+# means a unix socket -- and creates it 0666, which is what lets certflow, which
+# runs as `web`, reach it. server.json is in the instance directory, which the
+# deploy never touches.
+ExecStart=/opt/snac2/snac httpd /home/snac/data
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

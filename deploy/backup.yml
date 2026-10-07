@@ -1,0 +1,166 @@
+---
+# Takes a consistent snapshot of the instance and brings it back to this
+# workstation.
+#
+#   cd deploy
+#   ansible-playbook backup.yml
+#
+# The instance directory is all of snac's state: posts, likes, followers, actors,
+# the instance's private key, the server and user configuration, and the theme.
+#
+# The service is stopped while the archive is made. That is a few seconds, and it
+# is the point: snac writes objects, index files and queue entries continuously,
+# so a tar taken underneath a running instance can capture a half-written file or
+# a half-made hard link. Stopping first is what makes the snapshot worth
+# restoring.
+#
+# It is tar and not zip on purpose. snac deletes an object when its link count
+# drops below 2 (data.c:979), so the hard links from object/ into each user's
+# timeline directories *are* its reference counting. A zip stores every file's
+# bytes independently, and a tree restored from one has n_links == 1 everywhere;
+# snac would then treat live posts as unreferenced and garbage collect them. tar
+# preserves the links, and the count this playbook checks proves it did.
+- name: Back up the snac instance
+  hosts: snac
+  become: true
+
+  vars:
+    # Both derive from the stamp fact below, which is why they are safe here: it
+    # is stable, so re-templating these gives the same answer every time.
+    remote_archive: "/tmp/snac-backup-{{ snac_stamp }}.tar.gz"
+    local_archive: "{{ snac_backup_dir }}/snac-backup-{{ snac_stamp }}.tar.gz"
+
+  tasks:
+    # Minted once, into a fact, rather than sitting in `vars`. Vars are templated
+    # on every reference, so a `date` in one is a different date in every task
+    # that reads it -- and then the name the archive is written under would not
+    # be the name the fetch goes looking for.
+    - name: Timestamp this run
+      ansible.builtin.set_fact:
+        snac_stamp: "{{ lookup('pipe', 'date +%Y-%m-%d-%H%M%S') }}"
+
+    - name: Is there an instance here?
+      ansible.builtin.stat:
+        path: "{{ snac_basedir }}/server.json"
+      register: instance
+
+    - name: There has to be an instance directory
+      ansible.builtin.assert:
+        that: instance.stat.exists
+        fail_msg: >-
+          {{ snac_basedir }}/server.json is not there, so either this is not the
+          host running the instance or the path in group_vars is wrong. Backing
+          up an empty path would produce an archive that looks fine and restores
+          nothing.
+
+    - name: What is the service doing now?
+      ansible.builtin.service_facts:
+
+    - name: The unit has to be there, or nothing can start it again
+      ansible.builtin.assert:
+        that: (snac_unit ~ '.service') in ansible_facts.services
+        fail_msg: >-
+          there is no {{ snac_unit }} unit on this host. Its unit file is tracked
+          as systemd/{{ snac_unit }}.service.
+
+    - name: Remember whether it was running, so it goes back that way
+      ansible.builtin.set_fact:
+        snac_was_running: >-
+          {{ ansible_facts.services[snac_unit ~ '.service'].get('state') == 'running' }}
+
+    # Built here rather than inline, so the tar command stays readable. Trailing
+    # space included, so it can be pasted in front of the next argument.
+    - name: Work out what to leave out
+      ansible.builtin.set_fact:
+        snac_exclude_args: "{% for d in snac_backup_excludes %}--exclude={{ snac_basedir | basename }}/{{ d }} {% endfor %}"
+
+    - name: Snapshot it, with nothing writing to it
+      block:
+        - name: Stop snac
+          ansible.builtin.systemd:
+            name: "{{ snac_unit }}"
+            state: stopped
+
+        # Raw tar rather than ansible.builtin.archive: hard-link preservation is
+        # the whole point here, and this way it is explicit and checked.
+        - name: Make the archive  # noqa: command-instead-of-module
+          ansible.builtin.shell:
+            cmd: |
+              set -o pipefail
+              # umask first, so the archive itself lands as 0600. It carries the
+              # instance's private key and it sits in world-readable /tmp until
+              # the fetch takes it away.
+              umask 0077
+              tar czf {{ remote_archive }} {{ snac_exclude_args }}-C {{ snac_basedir | dirname }} {{ snac_basedir | basename }}
+            # The target's /bin/sh is dash, which has no pipefail.
+            executable: /bin/bash
+          become: true
+          become_user: "{{ snac_user }}"
+          changed_when: true
+
+        # Read back what went in, so a snapshot that silently captured nothing
+        # fails here rather than on the day it is needed.
+        - name: Count what went in  # noqa: command-instead-of-module
+          ansible.builtin.shell:
+            cmd: |
+              set -o pipefail
+              echo "entries=$(tar -tzf {{ remote_archive }} | wc -l)"
+              echo "hardlinks=$(LC_ALL=C tar -tzvf {{ remote_archive }} | grep -c '^h' || true)"
+              echo "bytes=$(stat -c %s {{ remote_archive }})"
+            executable: /bin/bash
+          changed_when: false
+          register: contents
+
+        # The link count is read from the leading h in tar's mode column. Matching
+        # the words is not portable: GNU tar translates them, and on this host it
+        # says "Verknuepfung zu".
+        - name: The archive has to carry hard links
+          ansible.builtin.assert:
+            that: contents.stdout is search('hardlinks=[1-9]')
+            fail_msg: >-
+              {{ contents.stdout }} -- the archive records no hard links, but
+              snac's object storage and every user timeline are built out of
+              them. Restored, every object would look unreferenced and snac would
+              delete live posts. Check that tar runs without --hard-dereference.
+      always:
+        # Runs even when the archive failed, so a failed backup never leaves the
+        # instance down.
+        - name: Start snac again
+          ansible.builtin.systemd:
+            name: "{{ snac_unit }}"
+            state: started
+          when: snac_was_running | bool
+
+    # --------------------------------------------------------- bring it home --
+    - name: Make sure the local directory exists
+      ansible.builtin.file:
+        path: "{{ snac_backup_dir }}"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+      become: false
+
+    - name: Bring the archive here
+      ansible.builtin.fetch:
+        src: "{{ remote_archive }}"
+        dest: "{{ local_archive }}"
+        flat: true
+
+    - name: Nobody else may read it
+      ansible.builtin.file:
+        path: "{{ local_archive }}"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+
+    - name: Remove the copy from the server
+      ansible.builtin.file:
+        path: "{{ remote_archive }}"
+        state: absent
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg:
+          - "backup:  {{ local_archive }}"
+          - "contents: {{ contents.stdout_lines | join(', ') }}"
+          - "restore: stop {{ snac_unit }}, then extract the archive into {{ snac_home }}"
