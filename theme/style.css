@@ -490,6 +490,10 @@ input[class^="snac-btn-"]:hover {
   max-width: 100%;
 }
 
+.snac-posts img {
+  max-height: 360px;
+}
+
 .snac-post {
   min-height: 75px;
   width: 100%;
@@ -497,6 +501,7 @@ input[class^="snac-btn-"]:hover {
 }
 
 .snac-content {
+  font-size: 18px;
   margin: 0.5em 0;
   line-height: 1.3;
 }
@@ -689,7 +694,33 @@ input[class^="snac-btn-"]:hover {
 .snac-header {
   text-align: center;
   margin-bottom: 0.5em;
-  text-transform: uppercase;
+}
+
+/* The people pages give each list a centred <h2 class="snac-header"> and put its
+   collapse control in a bare <details><summary> straight after. Left alone that
+   summary is a "..." line hanging to the left under the heading, so it is drawn
+   as a small centred caret sitting right beneath the heading it belongs to. */
+.snac-posts > div:has(> .snac-header) > details > summary {
+  display: block;
+  width: fit-content;
+  margin: -0.3em auto 0.8em;
+  color: var(--color-muted);
+  font-size: 0;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.snac-posts > div:has(> .snac-header) > details > summary::before {
+  content: "▾";
+  font-size: 18px;
+}
+
+.snac-posts > div:has(> .snac-header) > details > summary:hover {
+  color: var(--color-primary);
+}
+
+.snac-posts > div:has(> .snac-header) > details[open] > summary::before {
+  content: "▴";
 }
 
 .snac-post-with-desc b {
