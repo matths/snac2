@@ -332,7 +332,7 @@ int main(int argc, char *argv[])
     }
 
     if (strcmp(cmd, "lists") == 0) { /** **/
-        xs *lol = list_maint(&snac, NULL, 0);
+        xs *lol = list_maint(&snac, NULL, OP_LIST);
         const xs_list *l;
 
         xs_list_foreach(lol, l) {
@@ -389,10 +389,10 @@ int main(int argc, char *argv[])
         return usage(cmd);
 
     if (strcmp(cmd, "list_members") == 0) { /** **/
-        xs *lid = list_maint(&snac, url, 4);
+        xs *lid = list_maint(&snac, url, OP_FIND);
 
         if (lid != NULL) {
-            xs *lcont = list_members(&snac, lid, NULL, 0);
+            xs *lcont = list_members(&snac, lid, NULL, OP_LIST);
             const char *md5;
 
             xs_list_foreach(lcont, md5) {
@@ -410,10 +410,10 @@ int main(int argc, char *argv[])
     }
 
     if (strcmp(cmd, "list_create") == 0) { /** **/
-        xs *lid = list_maint(&snac, url, 4);
+        xs *lid = list_maint(&snac, url, OP_FIND);
 
         if (lid == NULL) {
-            xs *n_lid = list_maint(&snac, url, 1);
+            xs *n_lid = list_maint(&snac, url, OP_ADD);
             printf("New list named '%s' created (%s)\n", url, n_lid);
         }
         else
@@ -423,10 +423,10 @@ int main(int argc, char *argv[])
     }
 
     if (strcmp(cmd, "list_remove") == 0) { /** **/
-        xs *lid = list_maint(&snac, url, 4);
+        xs *lid = list_maint(&snac, url, OP_FIND);
 
         if (lid != NULL) {
-            list_maint(&snac, lid, 2);
+            list_maint(&snac, lid, OP_DEL);
             printf("List '%s' (%s) deleted\n", url, lid);
         }
         else
@@ -439,7 +439,7 @@ int main(int argc, char *argv[])
         const char *account = GET_ARGV();
 
         if (account != NULL) {
-            xs *lid = list_maint(&snac, url, 4);
+            xs *lid = list_maint(&snac, url, OP_FIND);
 
             if (lid != NULL) {
                 xs *actor = NULL;
@@ -448,7 +448,7 @@ int main(int argc, char *argv[])
                 if (valid_status(webfinger_request(account, &actor, &uid))) {
                     xs *md5 = xs_md5_hex(actor, strlen(actor));
 
-                    list_members(&snac, lid, md5, 1);
+                    list_members(&snac, lid, md5, OP_ADD);
                     printf("Actor %s (%s) added to list '%s' (%s)\n", actor, uid, url, lid);
                 }
                 else
@@ -466,12 +466,12 @@ int main(int argc, char *argv[])
         const char *account = GET_ARGV();
 
         if (account != NULL) {
-            xs *lid = list_maint(&snac, url, 4);
+            xs *lid = list_maint(&snac, url, OP_FIND);
 
             if (lid != NULL) {
                 xs *md5 = xs_md5_hex(account, strlen(account));
 
-                list_members(&snac, lid, md5, 2);
+                list_members(&snac, lid, md5, OP_DEL);
                 printf("Actor %s deleted from list '%s' (%s)\n", account, url, lid);
             }
             else

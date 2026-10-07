@@ -372,7 +372,7 @@ int adduser(const char *uid)
     }
 
     /* remove the grave */
-    grave(uid, 2);
+    grave(uid, OP_DEL);
 
     printf("\nUser password is %s\n", pwd);
 
@@ -467,7 +467,7 @@ int deluser(snac *user)
         }
     }
 
-    grave(user->uid, 1);
+    grave(user->uid, OP_ADD);
 
     rm_rf(user->basedir);
 
@@ -698,14 +698,14 @@ void export_csv(snac *user)
     if ((f = fopen(fn, "w")) != NULL) {
         snac_log(user, xs_fmt("Creating %s...", fn));
 
-        xs *lol = list_maint(user, NULL, 0);
+        xs *lol = list_maint(user, NULL, OP_LIST);
         const xs_list *li;
 
         xs_list_foreach(lol, li) {
             const char *lid = xs_list_get(li, 0);
             const char *ltitle = xs_list_get(li, 1);
 
-            xs *actors = list_members(user, lid, NULL, 0);
+            xs *actors = list_members(user, lid, NULL, OP_LIST);
             const char *md5;
 
             xs_list_foreach(actors, md5) {
@@ -744,7 +744,7 @@ void export_csv(snac *user)
             webfinger_request_fake(actor, NULL, &uid);
 
             if (xs_is_string(uid))
-                fprintf(f, "%s,%s,false,\n", uid, limited(user, actor, 0) ? "false" : "true");
+                fprintf(f, "%s,%s,false,\n", uid, limited(user, actor, OP_CHECK) ? "false" : "true");
         }
 
         fclose(f);
@@ -927,7 +927,7 @@ void import_list_csv(snac *user, const char *ifn)
 
                 if (lname && acct) {
                     /* create the list */
-                    xs *list_id = list_maint(user, lname, 1);
+                    xs *list_id = list_maint(user, lname, OP_ADD);
 
                     xs *url = NULL;
                     xs *uid = NULL;
@@ -935,7 +935,7 @@ void import_list_csv(snac *user, const char *ifn)
                     if (valid_status(webfinger_request(acct, &url, &uid))) {
                         xs *actor_md5 = xs_md5_hex(url, strlen(url));
 
-                        list_members(user, list_id, actor_md5, 1);
+                        list_members(user, list_id, actor_md5, OP_ADD);
                         snac_log(user, xs_fmt("Added %s to list %s", url, lname));
 
                         if (!following_check(user, url)) {

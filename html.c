@@ -216,7 +216,7 @@ xs_str *html_date_label(snac *user, const char *date)
 
     /* check if a user has actually set a timezone */
     if (user != NULL && xs_dict_get(user->config, "tz") != NULL &&
-        (t = xs_parse_iso_date(date, 0)) != 0) {
+        xs_endswith(date, "Z") && (t = xs_parse_iso_date(date, 0)) != 0) {
         t += xs_tz_offset(user->tz);
 
         time_t today = time(NULL);
@@ -362,7 +362,7 @@ xs_html *html_actor_icon(snac *user, xs_dict *actor, const char *date,
                 xs_html_raw("&#128148;")));
     }
 
-    if (actor_failure(actor_id, 0) == -1) {
+    if (actor_failure(actor_id, OP_CHECK) == -1) {
         xs_html_add(actor_icon,
             xs_html_text(" "),
             xs_html_tag("span",
@@ -1465,9 +1465,18 @@ xs_html *html_checkbox(const char *form_name, const char *label, int flag)
 }
 
 
-xs_html *html_top_controls(snac *user)
+xs_html *html_top_controls(snac *user, int tb_friendly)
 /* generates the top controls */
 {
+    if (tb_friendly) {
+        /* generate only a link to the /operations entrypoint */
+        xs *url = xs_fmt("%s/operations", user->actor);
+
+        return xs_html_tag("a",
+            xs_html_attr("href", url),
+            xs_html_text(L("Operations...")));
+    }
+
     xs *ops_action = xs_fmt("%s/admin/action", user->actor);
 
     xs_html *top_controls = xs_html_tag("div",
@@ -1537,6 +1546,7 @@ xs_html *html_top_controls(snac *user)
                     xs_html_attr("value",   L("Like"))),
                 xs_html_text(" "),
                 xs_html_text(L("(by URL)"))),
+            xs_html_tag("p", NULL),
             xs_html_tag("form",
                 xs_html_attr("autocomplete", "off"),
                 xs_html_attr("method",       "post"),
@@ -1614,6 +1624,7 @@ xs_html *html_top_controls(snac *user)
     const char *webhook      = xs_dict_get_def(user->config, "notify_webhook", "");
     const char *post_langs   = xs_dict_get_def(user->config, "post_langs", "");
     const char *excluded_langs = xs_dict_get_def(user->config, "excluded_langs", "");
+    const char *text_browser_uas = xs_dict_get_def(user->config, "text_browser_uas", "");
 
     xs *metadata = NULL;
     const xs_dict *md = xs_dict_get(user->config, "metadata");
@@ -1861,6 +1872,16 @@ xs_html *html_top_controls(snac *user)
                         xs_html_attr("placeholder", L("en fr es de_AT")))),
 
                 xs_html_tag("p",
+                    xs_html_text(L("Show a simpler web UI for browsers with these user agents (one per line):")),
+                    xs_html_sctag("br", NULL),
+                    xs_html_tag("textarea",
+                        xs_html_attr("name", "text_browser_uas"),
+                        xs_html_attr("cols", "40"),
+                        xs_html_attr("rows", "4"),
+                        xs_html_attr("placeholder", "Links\nLynx\nNetSurf"),
+                    xs_html_text(text_browser_uas))),
+
+                xs_html_tag("p",
                     xs_html_text(L("New password:")),
                     xs_html_sctag("br", NULL),
                     xs_html_sctag("input",
@@ -2080,7 +2101,7 @@ xs_str *build_mentions(snac *user, const xs_dict *msg)
 
 
 xs_html *html_entry_controls(snac *user, const char *actor,
-                            const xs_dict *msg, const char *md5)
+                            const xs_dict *msg, const char *md5, int tb_friendly)
 {
     const char *id    = xs_dict_get(msg, "id");
     const char *group = xs_dict_get(msg, "audience");
@@ -2191,6 +2212,21 @@ xs_html *html_entry_controls(snac *user, const char *actor,
 
     xs_html_add(form,
         html_button("hide",   L("Hide"), L("Hide this post and its children")));
+
+    if (tb_friendly) {
+        /* generate a link a More... text pointing to the one-post-only timeline */
+        xs *url = xs_fmt("%s/admin/p/%s#%s_entry", user->actor, md5, md5);
+
+        xs_html_add(controls,
+            xs_html_tag("p", NULL),
+            xs_html_tag("a",
+                xs_html_attr("href", url),
+                xs_html_text(L("More..."))));
+
+        /* and DONE */
+
+        return controls;
+    }
 
     const char *prev_src = xs_dict_get(msg, "sourceContent");
 
@@ -2308,7 +2344,7 @@ static const xs_str* words_in_content(const xs_list *words, const xs_val *conten
 
 
 xs_html *html_entry(snac *user, xs_dict *msg, int read_only,
-                   int level, const char *md5, int hide_children)
+                   int level, const char *md5, int hide_children, int tb_friendly)
 {
     const char *id    = xs_dict_get(msg, "id");
     const char *type  = xs_dict_get(msg, "type");
@@ -2871,7 +2907,7 @@ xs_html *html_entry(snac *user, xs_dict *msg, int read_only,
                 xs_html_add(snac_content,
                     xs_html_tag("blockquote",
                         xs_html_attr("class", "snac-quoted-post"),
-                        html_entry(user, quoted_post, 1, level + 1, md5, 1)));
+                        html_entry(user, quoted_post, 1, level + 1, md5, 1, tb_friendly)));
             }
             else
             if (user)
@@ -3135,7 +3171,7 @@ xs_html *html_entry(snac *user, xs_dict *msg, int read_only,
                     xs_html_tag("p",
                         xs_html_tag("a",
                             xs_html_attr("href", o_href),
-                            xs_html_text(href))));
+                            xs_html_text(o_href))));
 
                 /* do not generate an Alt... */
                 name = NULL;
@@ -3319,7 +3355,7 @@ xs_html *html_entry(snac *user, xs_dict *msg, int read_only,
 
     if (!read_only && user) {
         xs_html_add(entry,
-            html_entry_controls(user, actor, msg, md5));
+            html_entry_controls(user, actor, msg, md5, tb_friendly));
     }
 
     /** children **/
@@ -3381,7 +3417,7 @@ xs_html *html_entry(snac *user, xs_dict *msg, int read_only,
                        so that it appears unindented just before the parent
                        like a fucking Twitter-like thread */
                     xs_html_add(fch_container,
-                        html_entry(user, f_chd, read_only, level + 1, cmd5, hide_children));
+                        html_entry(user, f_chd, read_only, level + 1, cmd5, hide_children, tb_friendly));
 
                     cnt++;
                     f_cnt++;
@@ -3402,7 +3438,7 @@ xs_html *html_entry(snac *user, xs_dict *msg, int read_only,
                 if (chd != NULL) {
                     if (xs_is_null(xs_dict_get(chd, "name"))) {
                         xs_html *che = html_entry(user, chd, read_only,
-                            level + 1, cmd5, hide_children);
+                            level + 1, cmd5, hide_children, tb_friendly);
 
                         if (che != NULL) {
                             if (left > 3) {
@@ -3469,7 +3505,7 @@ xs_html *html_footer(const snac *user)
 xs_str *html_timeline(snac *user, const xs_list *list, int read_only,
                       int skip, int show, int show_more,
                       const char *title, const char *page,
-                      int utl, const char *error, int terse)
+                      int utl, const char *error, int terse, int tb_friendly)
 /* returns the HTML for the timeline */
 {
     const char *v;
@@ -3513,7 +3549,7 @@ xs_str *html_timeline(snac *user, const xs_list *list, int read_only,
 
     if (user && !read_only)
         xs_html_add(body,
-            html_top_controls(user));
+            html_top_controls(user, tb_friendly));
 
     if (error != NULL) {
         xs_html_add(body,
@@ -3534,12 +3570,11 @@ xs_str *html_timeline(snac *user, const xs_list *list, int read_only,
             xs_html_attr("class", "snac-list-of-lists"));
         xs_html_add(body, lol);
 
-        xs *lists = list_maint(user, NULL, 0); /* get list of lists */
+        xs *lists = list_maint(user, NULL, OP_LIST); /* get list of lists */
 
-        int ct = 0;
         const char *v;
 
-        while (xs_list_next(lists, &v, &ct)) {
+        xs_list_foreach(lists, v) {
             const char *lname = xs_list_get(v, 1);
             xs *url = xs_fmt("%s/list/%s", user->actor, xs_list_get(v, 0));
             xs *ttl = xs_fmt(L("Timeline for list '%s'"), lname);
@@ -3663,6 +3698,11 @@ xs_str *html_timeline(snac *user, const xs_list *list, int read_only,
 
     int show_unlisted = user ? xs_is_true(xs_dict_get(user->config, "show_unlisted")) : 0;
 
+    /* disable text-browser friendliness if it's just one post,
+       to force the details/summary controls to appear */
+    if (xs_list_len(list) == 1)
+        tb_friendly = 0;
+
     xs_list_foreach(list, v) {
         xs *msg = NULL;
         int status;
@@ -3729,7 +3769,7 @@ xs_str *html_timeline(snac *user, const xs_list *list, int read_only,
                 continue;
         }
 
-        xs_html *entry = html_entry(user, msg, read_only, 0, v, (user && !hide_children) ? 0 : 1);
+        xs_html *entry = html_entry(user, msg, read_only, 0, v, (user && !hide_children) ? 0 : 1, tb_friendly);
 
         if (entry != NULL)
             xs_html_add(posts,
@@ -3899,7 +3939,10 @@ xs_html *html_people_list(snac *user, xs_list *list, const char *header, const c
                     const char *lo = xs_is_string(longitude) ? longitude : xs_number_str(longitude);
 
                     if (xs_is_string(la) && xs_is_string(lo)) {
-                        xs *label = xs_fmt("%s,%s", la, lo);
+                        xs *sla = xs_utf8_crop_i(xs_dup(la), 0, 7);
+                        xs *slo = xs_utf8_crop_i(xs_dup(lo), 0, 7);
+
+                        xs *label = xs_fmt("%s,%s", sla, slo);
                         xs *url   = xs_fmt("https://openstreetmap.org/search?query=%s,%s", la, lo);
 
                         xs_html_add(snac_post,
@@ -4178,7 +4221,7 @@ xs_str *html_people_one(snac *user, const char *actor, const xs_list *list,
               xs_list_in((reacts = object_get_emoji_reacts(id)), actor_md5) == -1)))
             continue;
 
-        xs_html *entry = html_entry(user, msg, 0, 0, v, 1);
+        xs_html *entry = html_entry(user, msg, 0, 0, v, 1, 0);
 
         if (entry != NULL)
             xs_html_add(lists,
@@ -4243,6 +4286,7 @@ void notify_filter(snac *user, const xs_dict *p_vars)
     int folreq_on = (v = xs_dict_get(p_vars, "folreqs_on")) ? strcmp(v, "on") == 0 : 0;
     int blocks_on = (v = xs_dict_get(p_vars, "blocks_on")) ? strcmp(v, "on") == 0 : 0;
     int polls_on  = (v = xs_dict_get(p_vars, "polls_on")) ? strcmp(v, "on") == 0 : 0;
+    int webmen_on  = (v = xs_dict_get(p_vars, "webmentions_on")) ? strcmp(v, "on") == 0 : 0;
     xs *filter = xs_dict_new();
     filter = xs_dict_set(filter, "likes", xs_stock(likes_on ? XSTYPE_TRUE : XSTYPE_FALSE));
     filter = xs_dict_set(filter, "reacts", xs_stock(reacts_on ? XSTYPE_TRUE : XSTYPE_FALSE));
@@ -4253,6 +4297,7 @@ void notify_filter(snac *user, const xs_dict *p_vars)
     filter = xs_dict_set(filter, "folreqs", xs_stock(folreq_on ? XSTYPE_TRUE : XSTYPE_FALSE));
     filter = xs_dict_set(filter, "blocks", xs_stock(blocks_on ? XSTYPE_TRUE : XSTYPE_FALSE));
     filter = xs_dict_set(filter, "polls", xs_stock(polls_on ? XSTYPE_TRUE : XSTYPE_FALSE));
+    filter = xs_dict_set(filter, "webmentions", xs_stock(webmen_on ? XSTYPE_TRUE : XSTYPE_FALSE));
     user->config = xs_dict_set(user->config, "notify_filter", filter);
     user->tz = xs_dict_get_def(user->config, "tz", "UTC"); // previous line invalidates user->tz
 }
@@ -4264,7 +4309,7 @@ xs_str *html_notifications(snac *user, int skip, int show)
     if (xs_is_true(xs_dict_get(srv_config, "proxy_media")))
         proxy = user->actor;
 
-    xs *n_list_unfilt = notify_list(user, skip, show);
+    xs *n_list_unfilt = notify_list(user, 0, XS_ALL);
     xs *n_time = notify_check_time(user, 0);
 
     xs_html *body = html_user_body(user, 0);
@@ -4275,7 +4320,7 @@ xs_str *html_notifications(snac *user, int skip, int show)
         user->tz = xs_dict_get_def(user->config, "tz", "UTC"); // previous line invalidates user->tz
         n_filter = xs_dict_get(user->config, "notify_filter");
     }
-    xs *n_list = notify_filter_list(user, n_list_unfilt);
+    xs *n_list = notify_filter_list(user, n_list_unfilt, skip, show);
     /* all filters are true by default */
     const xs_val *n_def = xs_stock( XSTYPE_TRUE );
     int n_likes_on  = xs_is_true(xs_dict_get_def(n_filter, "likes", n_def));
@@ -4287,6 +4332,7 @@ xs_str *html_notifications(snac *user, int skip, int show)
     int n_folreq_on = xs_is_true(xs_dict_get_def(n_filter, "folreqs", n_def));
     int n_blocks_on = xs_is_true(xs_dict_get_def(n_filter, "blocks", n_def));
     int n_polls_on  = xs_is_true(xs_dict_get_def(n_filter, "polls", n_def));
+    int n_webmen_on  = xs_is_true(xs_dict_get_def(n_filter, "webmentions", n_def));
 
     xs_html *html = xs_html_tag("html",
         html_user_head(user, NULL, NULL),
@@ -4313,6 +4359,7 @@ xs_str *html_notifications(snac *user, int skip, int show)
         html_checkbox("folreqs_on", L("Follow requests"), n_folreq_on),
         html_checkbox("blocks_on", L("Blocks"), n_blocks_on),
         html_checkbox("polls_on", L("Polls"), n_polls_on),
+        html_checkbox("webmentions_on", L("Webmentions"), n_webmen_on),
         xs_html_sctag("input",
             xs_html_attr("type",     "submit"),
             xs_html_attr("class",    "button"),
@@ -4546,7 +4593,7 @@ xs_str *html_notifications(snac *user, int skip, int show)
             xs *md5 = xs_md5_hex(id, strlen(id));
             xs *ctxt = xs_fmt("%s/admin/p/%s#%s_entry", user->actor, md5, md5);
 
-            xs_html *h = html_entry(user, obj, 0, 0, md5, 1);
+            xs_html *h = html_entry(user, obj, 0, 0, md5, 1, 0);
 
             if (h != NULL) {
                 xs_html_add(entry,
@@ -4604,7 +4651,8 @@ xs_str *html_notifications(snac *user, int skip, int show)
                 xs_html_text(L("None"))));
 
     /* add the navigation footer */
-    xs *next_p = notify_list(user, skip + show, 1);
+    xs *next_p = notify_filter_list(user, n_list_unfilt, skip + show, 1);
+
     if (xs_list_len(next_p)) {
         xs *url = xs_fmt("%s/notifications?skip=%d&show=%d",
             user->actor, skip + show, show);
@@ -4642,6 +4690,40 @@ void set_user_lang(snac *user)
 }
 
 
+int text_browser_friendly(const snac *user, const char *user_agent)
+/* returns true if the web UI must be adapted to text browsers */
+/* basically, this means to avoid details/summary as much as possible */
+{
+    if (user != NULL && xs_is_string(user_agent)) {
+        snac_debug(user, 2, xs_fmt("user-agent: %s", user_agent));
+
+        const char *text_browser_uas = xs_dict_get(user->config, "text_browser_uas");
+
+        if (xs_is_string(text_browser_uas)) {
+            xs *l = xs_split(text_browser_uas, "\n");
+            const char *v;
+
+            xs_list_foreach(l, v) {
+                if (*v == '\0')
+                    continue;
+
+                xs *v2 = xs_strip_i(xs_dup(v));
+
+                /* an asterisk alone means "all browsers", so yes */
+                if (strcmp(v2, "*") == 0)
+                    return 1;
+
+                /* if this string is inside user_agent, then yes */
+                if (xs_str_in(user_agent, v2) != -1)
+                    return 1;
+            }
+        }
+    }
+
+    return 0;
+}
+
+
 int html_get_handler(const xs_dict *req, const char *q_path,
                      char **body, int *b_size, char **ctype,
                      xs_str **etag, xs_str **last_modified)
@@ -4656,6 +4738,7 @@ int html_get_handler(const xs_dict *req, const char *q_path,
     int save = 1;
     int proxy = 0;
     int terse = 0;
+    int tb_friendly = 0;
     const char *v;
 
     const xs_dict *q_vars = xs_dict_get(req, "q_vars");
@@ -4714,7 +4797,7 @@ int html_get_handler(const xs_dict *req, const char *q_path,
 
     if (!uid || !user_open(&snac, uid)) {
         /* invalid user */
-        status = grave(uid, 0) ? HTTP_STATUS_GONE : HTTP_STATUS_NOT_FOUND;
+        status = grave(uid, OP_CHECK) ? HTTP_STATUS_GONE : HTTP_STATUS_NOT_FOUND;
         srv_debug(2, xs_fmt("html_get_handler bad user '%s' %d", xs_or(uid, "(null)"), status));
         return status;
     }
@@ -4724,6 +4807,8 @@ int html_get_handler(const xs_dict *req, const char *q_path,
 
     if (xs_is_true(xs_dict_get(srv_config, "proxy_media")))
         proxy = 1;
+
+    tb_friendly = text_browser_friendly(user, xs_dict_get(req, "user-agent"));
 
     /* return the RSS if requested by Accept header */
     if (accept != NULL) {
@@ -4776,7 +4861,7 @@ int html_get_handler(const xs_dict *req, const char *q_path,
 
         if (xs_type(xs_dict_get(snac.config, "private")) == XSTYPE_TRUE) {
             /** empty public timeline for private users **/
-            *body = html_timeline(&snac, NULL, 1, 0, 0, 0, NULL, "", 1, error, terse);
+            *body = html_timeline(&snac, NULL, 1, 0, 0, 0, NULL, "", 1, error, terse, tb_friendly);
             *b_size = strlen(*body);
             status  = HTTP_STATUS_OK;
         }
@@ -4799,13 +4884,35 @@ int html_get_handler(const xs_dict *req, const char *q_path,
             xs *pins = pinned_list(&snac);
             pins = xs_list_cat(pins, list);
 
-            *body = html_timeline(&snac, pins, 1, skip, show, more, NULL, "", 1, error, terse);
+            *body = html_timeline(&snac, pins, 1, skip, show, more, NULL, "", 1, error, terse, tb_friendly);
 
             *b_size = strlen(*body);
             status  = HTTP_STATUS_OK;
 
             if (save)
                 history_add(&snac, h, *body, *b_size, etag);
+        }
+    }
+    else
+    if (strcmp(p_path, "operations") == 0) { /** operations and user settings **/
+        if (!login(&snac, req)) {
+            *body  = xs_dup(uid);
+            status = HTTP_STATUS_UNAUTHORIZED;
+        }
+        else {
+            xs_html *h_body = html_user_body(&snac, 0);
+
+            xs_html *html = xs_html_tag("html",
+                html_user_head(&snac, NULL, NULL),
+                h_body);
+
+            xs_html_add(h_body,
+                html_top_controls(&snac, 0),
+                html_footer(&snac));
+
+            *body   = xs_html_render_s(html, "<!DOCTYPE html>\n");
+            *b_size = strlen(*body);
+            status  = HTTP_STATUS_OK;
         }
     }
     else
@@ -4927,7 +5034,7 @@ int html_get_handler(const xs_dict *req, const char *q_path,
                     xs *title = xs_fmt(xs_list_len(tl) ?
                         L("Search results for tag %s") : L("Nothing found for tag %s"), q);
 
-                    *body = html_timeline(&snac, tl, 0, skip, show, more, title, page, 0, error, terse);
+                    *body = html_timeline(&snac, tl, 0, skip, show, more, title, page, 0, error, terse, tb_friendly);
                     *b_size = strlen(*body);
                     status  = HTTP_STATUS_OK;
                 }
@@ -4952,7 +5059,7 @@ int html_get_handler(const xs_dict *req, const char *q_path,
                         title = xs_fmt(L("Nothing found for '%s'"), q);
 
                     *body   = html_timeline(&snac, tl, 0, skip, tl_len, to || tl_len == show,
-                                            title, page, 0, error, terse);
+                                            title, page, 0, error, terse, tb_friendly);
                     *b_size = strlen(*body);
                     status  = HTTP_STATUS_OK;
                 }
@@ -4979,7 +5086,7 @@ int html_get_handler(const xs_dict *req, const char *q_path,
                     xs *list = timeline_list(&snac, "private", skip, show, &more);
 
                     *body = html_timeline(&snac, list, 0, skip, show,
-                            more, NULL, "/admin", 1, error, terse);
+                            more, NULL, "/admin", 1, error, terse, tb_friendly);
 
                     *b_size = strlen(*body);
                     status  = HTTP_STATUS_OK;
@@ -5006,7 +5113,7 @@ int html_get_handler(const xs_dict *req, const char *q_path,
                 xs *list0 = xs_list_append(xs_list_new(), md5);
                 xs *list  = timeline_top_level(&snac, list0);
 
-                *body   = html_timeline(&snac, list, 0, 0, 0, 0, NULL, "/admin", 1, error, terse);
+                *body   = html_timeline(&snac, list, 0, 0, 0, 0, NULL, "/admin", 1, error, terse, tb_friendly);
                 *b_size = strlen(*body);
                 status  = HTTP_STATUS_OK;
             }
@@ -5078,7 +5185,7 @@ int html_get_handler(const xs_dict *req, const char *q_path,
             xs *next = timeline_instance_list(skip + show, 1);
 
             *body = html_timeline(&snac, list, 0, skip, show,
-                xs_list_len(next), L("Showing instance timeline"), "/instance", 0, error, terse);
+                xs_list_len(next), L("Showing instance timeline"), "/instance", 0, error, terse, tb_friendly);
             *b_size = strlen(*body);
             status  = HTTP_STATUS_OK;
         }
@@ -5093,7 +5200,7 @@ int html_get_handler(const xs_dict *req, const char *q_path,
             xs *list = pinned_list(&snac);
 
             *body = html_timeline(&snac, list, 0, skip, show,
-                0, L("Pinned posts"), "", 0, error, terse);
+                0, L("Pinned posts"), "", 0, error, terse, tb_friendly);
             *b_size = strlen(*body);
             status  = HTTP_STATUS_OK;
         }
@@ -5109,7 +5216,7 @@ int html_get_handler(const xs_dict *req, const char *q_path,
             xs *list = timeline_list(&snac, "admire", skip, show, &more);
 
             *body = html_timeline(&snac, list, 0, skip, show,
-                more, L("Liked, boosted or reacted posts"), "/admirations", 0, error, terse);
+                more, L("Liked, boosted or reacted posts"), "/admirations", 0, error, terse, tb_friendly);
             *b_size = strlen(*body);
             status  = HTTP_STATUS_OK;
         }
@@ -5124,7 +5231,7 @@ int html_get_handler(const xs_dict *req, const char *q_path,
             xs *list = bookmark_list(&snac);
 
             *body = html_timeline(&snac, list, 0, skip, show,
-                0, L("Bookmarked posts"), "", 0, error, terse);
+                0, L("Bookmarked posts"), "", 0, error, terse, tb_friendly);
             *b_size = strlen(*body);
             status  = HTTP_STATUS_OK;
         }
@@ -5139,7 +5246,7 @@ int html_get_handler(const xs_dict *req, const char *q_path,
             xs *list = draft_list(&snac);
 
             *body = html_timeline(&snac, list, 0, skip, show,
-                0, L("Post drafts"), "", 0, error, terse);
+                0, L("Post drafts"), "", 0, error, terse, tb_friendly);
             *b_size = strlen(*body);
             status  = HTTP_STATUS_OK;
         }
@@ -5154,7 +5261,7 @@ int html_get_handler(const xs_dict *req, const char *q_path,
             xs *list = scheduled_list(&snac);
 
             *body = html_timeline(&snac, list, 0, skip, show,
-                0, L("Scheduled posts"), "", 0, error, terse);
+                0, L("Scheduled posts"), "", 0, error, terse, tb_friendly);
             *b_size = strlen(*body);
             status  = HTTP_STATUS_OK;
         }
@@ -5176,11 +5283,11 @@ int html_get_handler(const xs_dict *req, const char *q_path,
                 xs *ttl = timeline_top_level(&snac, list);
 
                 xs *base = xs_fmt("/list/%s", lid);
-                xs *name = list_maint(&snac, lid, 3);
+                xs *name = list_maint(&snac, lid, OP_ID);
                 xs *title = xs_fmt(L("Showing timeline for list '%s'"), name);
 
                 *body = html_timeline(&snac, ttl, 0, skip, show,
-                    xs_list_len(next), title, base, 1, error, terse);
+                    xs_list_len(next), title, base, 1, error, terse, tb_friendly);
                 *b_size = strlen(*body);
                 status  = HTTP_STATUS_OK;
             }
@@ -5200,7 +5307,7 @@ int html_get_handler(const xs_dict *req, const char *q_path,
 
             list = xs_list_append(list, md5);
 
-            *body   = html_timeline(&snac, list, 1, 0, 0, 0, NULL, "", 1, error, terse);
+            *body   = html_timeline(&snac, list, 1, 0, 0, 0, NULL, "", 1, error, terse, tb_friendly);
             *b_size = strlen(*body);
             status  = HTTP_STATUS_OK;
         }
@@ -5293,6 +5400,10 @@ int html_get_handler(const xs_dict *req, const char *q_path,
             /* pick the raw path (including optional ? arguments) */
             const char *raw_path = xs_dict_get(req, "raw_path");
 
+            /* skip the prefix and user part */
+            xs *s = xs_fmt("%s/%s/", xs_dict_get(srv_config, "prefix"), snac.uid);
+            raw_path += strlen(s);
+
             /* skip to where the proxy/ string starts */
             raw_path += xs_str_in(raw_path, proxy_prefix);
 
@@ -5330,6 +5441,9 @@ int html_get_handler(const xs_dict *req, const char *q_path,
             }
 
             snac_debug(&snac, 1, xs_fmt("Proxy for %s %d", url, status));
+
+            if (status >= 400 && status <= 499)
+                status = HTTP_STATUS_NOT_FOUND;
         }
     }
     else
@@ -5717,8 +5831,6 @@ int html_post_handler(const xs_dict *req, const char *q_path,
         if (strcmp(action, L("EmojiReact")) == 0) { /** **/
             xs *eid = xs_dup(xs_dict_get(p_vars, "eid"));
 
-            eid = xs_strip_chars_i(eid, ":");
-
             xs *ret = msg_emoji_init(&snac, id, eid);
             /* fails if either invalid or already reacted */
             if (!ret) {
@@ -6017,6 +6129,8 @@ int html_post_handler(const xs_dict *req, const char *q_path,
 
         if ((v = xs_dict_get(p_vars, "metadata")) != NULL)
             snac.config = xs_dict_set(snac.config, "metadata", v);
+
+        snac.config = xs_dict_set(snac.config, "text_browser_uas", xs_dict_get_def(p_vars, "text_browser_uas", ""));
 
         /* uploads */
         const char *uploads[] = { "avatar", "header", NULL };

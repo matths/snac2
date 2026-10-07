@@ -1,7 +1,7 @@
 /* snac - A simple, minimalistic ActivityPub instance */
 /* copyright (c) 2022 - 2026 grunfink et al. / MIT license */
 
-#define VERSION "2.93"
+#define VERSION "2.95"
 
 #define USER_AGENT "snac/" VERSION
 
@@ -79,6 +79,15 @@ typedef struct {
     enum { THST_STOP, THST_WAIT, THST_IN, THST_QUEUE } th_state[MAX_THREADS];
 } srv_state;
 
+typedef enum {
+    OP_CHECK = 0,
+    OP_ADD = 1,
+    OP_DEL = 2,
+    OP_LIST = 3,
+    OP_FIND = 4,
+    OP_ID = 5
+} snac_op;
+
 extern srv_state *p_state;
 
 enum {
@@ -88,7 +97,7 @@ enum {
     SCOPE_FOLLOWERS = 3,
 };
 
-void snac_log(snac *user, xs_str *str);
+void snac_log(const snac *user, xs_str *str);
 #define snac_debug(user, level, str) do { if (dbglevel >= (level)) \
     { snac_log((user), (str)); } } while (0)
 
@@ -238,10 +247,10 @@ void schedule_add(snac *user, const char *id, const xs_dict *msg);
 xs_list *scheduled_list(snac *user);
 void scheduled_process(snac *user);
 
-int limited(snac *user, const char *id, int cmd);
-#define is_limited(user, id) limited((user), (id), 0)
-#define limit(user, id) limited((user), (id), 1)
-#define unlimit(user, id) limited((user), (id), 2)
+int limited(snac *user, const char *id, snac_op);
+#define is_limited(user, id) limited((user), (id), OP_CHECK)
+#define limit(user, id) limited((user), (id), OP_ADD)
+#define unlimit(user, id) limited((user), (id), OP_DEL)
 
 void hide(snac *snac, const char *id);
 int is_hidden(snac *snac, const char *id);
@@ -251,10 +260,10 @@ void tag_index(const char *id, const xs_dict *obj);
 xs_str *tag_fn(const char *tag);
 xs_list *tag_search(const char *tag, int skip, int show);
 
-xs_val *list_maint(snac *user, const char *list, int op);
+xs_val *list_maint(snac *user, const char *list, snac_op op);
 xs_str *list_timeline_fn(snac *user, const char *list);
 xs_list *list_timeline(snac *user, const char *list, int skip, int show);
-xs_val *list_members(snac *user, const char *list_id, const char *actor_md5, int op);
+xs_val *list_members(snac *user, const char *list_id, const char *actor_md5, snac_op op);
 void list_distribute(snac *user, const char *who, const xs_dict *post);
 
 int actor_add(const char *actor, const xs_dict *msg);
@@ -282,7 +291,7 @@ void notify_add(snac *snac, const char *type, const char *utype,
 xs_dict *notify_get(snac *snac, const char *id);
 int notify_new_num(snac *snac);
 xs_list *notify_list(snac *snac, int skip, int show);
-xs_list *notify_filter_list(snac *snac, xs_list *ids);
+xs_list *notify_filter_list(snac *snac, xs_list *ids, int skip, int show);
 void notify_clear(snac *snac);
 
 xs_dict *markers_get(snac *snac, const xs_list *markers);
@@ -300,10 +309,10 @@ int content_match(const char *file, const xs_dict *msg);
 xs_list *content_search(snac *user, const char *regex,
             int priv, int skip, int show, int max_secs, int *timeout);
 
-int actor_failure(const char *actor, int op);
-int instance_failure(const char *url, int op);
+int actor_failure(const char *actor, snac_op op);
+int instance_failure(const char *url, snac_op op);
 
-int grave(const char *objid, int op);
+int grave(const char *objid, snac_op op);
 
 void enqueue_input(snac *snac, const xs_dict *msg, const xs_dict *req, int retries);
 void enqueue_shared_input(const xs_dict *msg, const xs_dict *req, int retries);
@@ -429,7 +438,8 @@ xs_str *encode_html(const char *str);
 
 xs_str *html_timeline(snac *user, const xs_list *list, int read_only,
                       int skip, int show, int show_more,
-                      const char *title, const char *page, int utl, const char *error, int terse);
+                      const char *title, const char *page,
+                      int utl, const char *error, int terse, int tb_friendly);
 
 int html_get_handler(const xs_dict *req, const char *q_path,
                      char **body, int *b_size, char **ctype,

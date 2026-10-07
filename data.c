@@ -2355,7 +2355,7 @@ int actor_get_refresh(snac *user, const char *actor, xs_dict **data)
 
 /** user limiting (announce blocks) **/
 
-int limited(snac *user, const char *id, int cmd)
+int limited(snac *user, const char *id, snac_op op)
 /* announce messages from a followed (0: check, 1: limit; 2: unlimit) */
 {
     int ret = 0;
@@ -2363,12 +2363,12 @@ int limited(snac *user, const char *id, int cmd)
     xs *md5 = xs_md5_hex(id, strlen(id));
     xs *fn  = xs_fmt("%s/%s", dir, md5);
 
-    switch (cmd) {
-    case 0: /** check **/
+    switch (op) {
+    case OP_CHECK: /** check **/
         ret = !!(mtime(fn) > 0.0);
         break;
 
-    case 1: /** limit **/
+    case OP_ADD: /** limit **/
         mkdirx(dir);
 
         if (mtime(fn) > 0.0)
@@ -2385,11 +2385,14 @@ int limited(snac *user, const char *id, int cmd)
         }
         break;
 
-    case 2: /** unlimit **/
+    case OP_DEL: /** unlimit **/
         if (mtime(fn) > 0.0)
             ret = unlink(fn);
         else
             ret = -1;
+        break;
+
+    default:
         break;
     }
 
@@ -2474,13 +2477,13 @@ xs_list *tag_search(const char *tag, int skip, int show)
 
 /** lists **/
 
-xs_val *list_maint(snac *user, const char *list, int op)
+xs_val *list_maint(snac *user, const char *list, snac_op op)
 /* list maintenance */
 {
     xs_val *l = NULL;
 
     switch (op) {
-    case 0: /** list of lists **/
+    case OP_LIST: /** list of lists **/
         {
             FILE *f;
             xs *spec = xs_fmt("%s/list/" "*.id", user->basedir);
@@ -2509,9 +2512,9 @@ xs_val *list_maint(snac *user, const char *list, int op)
 
         break;
 
-    case 1: /** create new list (list is the name) **/
+    case OP_ADD: /** create new list (list is the name) **/
         {
-            xs *lol = list_maint(user, NULL, 0);
+            xs *lol = list_maint(user, NULL, OP_LIST);
             int c = 0;
             const xs_list *v;
             int add = 1;
@@ -2546,7 +2549,7 @@ xs_val *list_maint(snac *user, const char *list, int op)
 
         break;
 
-    case 2: /** delete list (list is the id) **/
+    case OP_DEL: /** delete list (list is the id) **/
         {
             if (xs_is_hex(list)) {
                 xs *fn = xs_fmt("%s/list/%s.id", user->basedir, list);
@@ -2565,7 +2568,7 @@ xs_val *list_maint(snac *user, const char *list, int op)
 
         break;
 
-    case 3: /** get list name **/
+    case OP_ID: /** get list name **/
         if (xs_is_hex(list)) {
             FILE *f;
             xs *fn = xs_fmt("%s/list/%s.id", user->basedir, list);
@@ -2578,9 +2581,9 @@ xs_val *list_maint(snac *user, const char *list, int op)
 
         break;
 
-    case 4: /** find list id by name **/
+    case OP_FIND: /** find list id by name **/
         if (xs_is_string(list)) {
-            xs *lol = list_maint(user, NULL, 0);
+            xs *lol = list_maint(user, NULL, OP_LIST);
             const xs_list *li;
 
             xs_list_foreach(lol, li) {
@@ -2590,6 +2593,9 @@ xs_val *list_maint(snac *user, const char *list, int op)
                 }
             }
         }
+
+    default:
+        break;
     }
 
     return l;
@@ -2621,7 +2627,7 @@ xs_list *list_timeline(snac *user, const char *list, int skip, int show)
 }
 
 
-xs_val *list_members(snac *user, const char *list, const char *actor_md5, int op)
+xs_val *list_members(snac *user, const char *list, const char *actor_md5, snac_op op)
 /* list member management */
 {
     xs_val *l = NULL;
@@ -2635,12 +2641,12 @@ xs_val *list_members(snac *user, const char *list, const char *actor_md5, int op
     xs *fn = xs_fmt("%s/list/%s.lst", user->basedir, list);
 
     switch (op) {
-    case 0: /** list members **/
+    case OP_LIST: /** list members **/
         l = index_list(fn, XS_ALL);
 
         break;
 
-    case 1: /** append actor to list **/
+    case OP_ADD: /** append actor to list **/
         if (xs_is_string(actor_md5) && xs_is_hex(actor_md5)) {
             if (!index_in_md5(fn, actor_md5))
                 index_add_md5(fn, actor_md5);
@@ -2648,7 +2654,7 @@ xs_val *list_members(snac *user, const char *list, const char *actor_md5, int op
 
         break;
 
-    case 2: /** delete actor from list **/
+    case OP_DEL: /** delete actor from list **/
         if (xs_is_string(actor_md5) && xs_is_hex(actor_md5))
             index_del_md5(fn, actor_md5);
 
@@ -2734,7 +2740,7 @@ static int _load_raw_file(const char *fn, xs_val **data, int *size,
             if (etag != NULL)
                 *etag = xs_dup(e);
 
-            srv_debug(1, xs_fmt("_load_raw_file(): %s %d", fn, status));
+            srv_debug(2, xs_fmt("_load_raw_file(): %s %d", fn, status));
         }
     }
 
@@ -3233,7 +3239,7 @@ xs_list *content_search(snac *user, const char *regex,
 }
 
 
-int actor_failure(const char *actor, int op)
+int actor_failure(const char *actor, snac_op op)
 /* actor failure maintenance */
 {
     int ret = 0;
@@ -3242,13 +3248,13 @@ int actor_failure(const char *actor, int op)
     xs *fn = xs_fmt("%s/failure/%s", srv_basedir, md5);
 
     switch (op) {
-    case 0: /** check **/
+    case OP_CHECK: /** check **/
         if (mtime(fn))
             ret = -1;
 
         break;
 
-    case 1: /** register a failure **/
+    case OP_ADD: /** register a failure **/
         if (mtime(fn) == 0.0) {
             FILE *f;
 
@@ -3261,10 +3267,13 @@ int actor_failure(const char *actor, int op)
 
         break;
 
-    case 2: /** clear a failure **/
+    case OP_DEL: /** clear a failure **/
         /* called whenever a message comes from this instance */
         unlink(fn);
 
+        break;
+
+    default:
         break;
     }
 
@@ -3272,7 +3281,7 @@ int actor_failure(const char *actor, int op)
 }
 
 
-int instance_failure(const char *url, int op)
+int instance_failure(const char *url, snac_op op)
 /* do some checks and accounting on instance failures */
 {
     int ret = 0;
@@ -3287,7 +3296,7 @@ int instance_failure(const char *url, int op)
     xs *fn = xs_fmt("%s/failure/%s", srv_basedir, md5);
 
     switch (op) {
-    case 0: /** check **/
+    case OP_CHECK: /** check **/
         if ((mt = mtime(fn)) != 0.0) {
             /* grace time */
             double seconds_failing = xs_number_get(xs_dict_get_def(srv_config, "max_failing_days", "15"))
@@ -3299,7 +3308,7 @@ int instance_failure(const char *url, int op)
 
         break;
 
-    case 1: /** register a failure **/
+    case OP_ADD: /** register a failure **/
         if (mtime(fn) == 0.0) {
             FILE *f;
 
@@ -3312,10 +3321,13 @@ int instance_failure(const char *url, int op)
 
         break;
 
-    case 2: /** clear a failure **/
+    case OP_DEL: /** clear a failure **/
         /* called whenever a message comes from this instance */
         unlink(fn);
 
+        break;
+
+    default:
         break;
     }
 
@@ -3323,7 +3335,7 @@ int instance_failure(const char *url, int op)
 }
 
 
-int grave(const char *objid, int op)
+int grave(const char *objid, snac_op op)
 /* the graveyeard of deleted objects */
 {
     int ret = 0;
@@ -3333,11 +3345,11 @@ int grave(const char *objid, int op)
     FILE *f;
 
     switch (op) {
-    case 0: /** check **/
+    case OP_CHECK: /** check **/
         ret = mtime(fn) > 0.0 ? 1 : 0;
         break;
 
-    case 1: /** add **/
+    case OP_ADD: /** add **/
         mkdirx(dir);
 
         if ((f = fopen(fn, "w")) != NULL) {
@@ -3347,8 +3359,11 @@ int grave(const char *objid, int op)
 
         break;
 
-    case 2: /** del **/
+    case OP_DEL: /** del **/
         unlink(fn);
+        break;
+
+    default:
         break;
     }
 
@@ -3514,12 +3529,18 @@ xs_dict *notify_get(snac *snac, const char *id)
     fn = xs_strip_i(fn);
     fn = xs_str_cat(fn, ".json");
 
-    FILE *f;
     xs_dict *out = NULL;
 
-    if ((f = fopen(fn, "r")) != NULL) {
-        out = xs_json_load(f);
-        fclose(f);
+    struct stat st;
+
+    if (stat(fn, &st) != -1) {
+        if (st.st_size < 100000) {
+            FILE *f;
+            if ((f = fopen(fn, "r")) != NULL) {
+                out = xs_json_load(f);
+                fclose(f);
+            }
+        }
     }
 
     return out;
@@ -3561,7 +3582,7 @@ xs_list *notify_list(snac *snac, int skip, int show)
 }
 
 
-xs_list *notify_filter_list(snac *snac, xs_list *notifs)
+xs_list *notify_filter_list(snac *snac, xs_list *notifs, int skip, int show)
 /* apply user-defined notification filter to IDs */
 {
     const xs_dict *n_filter = xs_dict_get(snac->config, "notify_filter");
@@ -3578,6 +3599,7 @@ xs_list *notify_filter_list(snac *snac, xs_list *notifs)
     int n_folreq_on = xs_is_true(xs_dict_get_def(n_filter, "folreqs", n_def));
     int n_blocks_on = xs_is_true(xs_dict_get_def(n_filter, "blocks", n_def));
     int n_polls_on  = xs_is_true(xs_dict_get_def(n_filter, "polls", n_def));
+    int n_webmen_on  = xs_is_true(xs_dict_get_def(n_filter, "webmentions", n_def));
 
     const xs_str *v;
     xs_list *flt = xs_list_new();
@@ -3618,7 +3640,19 @@ xs_list *notify_filter_list(snac *snac, xs_list *notifs)
             continue;
         if (strcmp(type, "Announce") == 0 && !n_ann_on)
             continue;
+        if (strcmp(type, "Webmention") == 0 && !n_webmen_on)
+            continue;
+
+        if (skip) {
+            skip--;
+            continue;
+        }
+
         flt = xs_list_append(flt, v);
+        show--;
+
+        if (show == 0)
+            break;
     }
     return flt;
 }
@@ -3629,7 +3663,7 @@ int notify_new_num(snac *snac)
 {
     xs *t = notify_check_time(snac, 0);
     xs *lst_unfilt = notify_list(snac, 0, XS_ALL);
-    xs *lst = notify_filter_list(snac, lst_unfilt);
+    xs *lst = notify_filter_list(snac, lst_unfilt, 0, XS_ALL);
     int cnt = 0;
 
     xs_list *p = lst;

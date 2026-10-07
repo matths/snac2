@@ -258,7 +258,7 @@ int server_get_handler(xs_dict *req, const char *q_path,
             else {
                 xs *page = xs_fmt("?t=%s", t);
                 xs *title = xs_fmt(L("Search results for tag #%s"), t);
-                *body = html_timeline(NULL, tl, 0, skip, show, more, title, page, 0, NULL, 0);
+                *body = html_timeline(NULL, tl, 0, skip, show, more, title, page, 0, NULL, 0, 0);
             }
         }
         else
@@ -266,7 +266,7 @@ int server_get_handler(xs_dict *req, const char *q_path,
             /** instance timeline **/
             xs *tl = timeline_instance_list(0, 30);
             *body = html_timeline(NULL, tl, 0, 0, 0, 0,
-                L("Recent posts by users in this instance"), NULL, 0, NULL, 0);
+                L("Recent posts by users in this instance"), NULL, 0, NULL, 0, 0);
         }
         else
             *body = greeting_html();
@@ -285,8 +285,8 @@ int server_get_handler(xs_dict *req, const char *q_path,
         status = HTTP_STATUS_OK;
         *ctype = "application/json; charset=utf-8";
         *body  = xs_fmt("{\"links\":["
-            "{\"rel\":\"http:/" "/nodeinfo.diaspora.software/ns/schema/2.0\",\"href\":\"%s/nodeinfo_2_0\"},"
-            "{\"rel\":\"http:/" "/nodeinfo.diaspora.software/ns/schema/2.1\",\"href\":\"%s/nodeinfo_2_1\"}"
+            "{\"rel\":\"http:/" "/nodeinfo.diaspora.software/ns/schema/2.1\",\"href\":\"%s/nodeinfo_2_1\"},"
+            "{\"rel\":\"http:/" "/nodeinfo.diaspora.software/ns/schema/2.0\",\"href\":\"%s/nodeinfo_2_0\"}"
             "]}",
             srv_baseurl, srv_baseurl);
     }
@@ -504,9 +504,9 @@ void httpd_connection(FILE *f)
         q_path = xs_crop_i(q_path, strlen(p), 0);
 
     /* add users endpoint redirection mimic Mastodon behaviour */
-    const char *users_endpoint = "/users";
+    const char *users_endpoint = "/users/";
     if (xs_startswith(q_path, users_endpoint)) {
-        q_path = xs_crop_i(q_path, strlen(users_endpoint), 0);
+        q_path = xs_crop_i(q_path, strlen(users_endpoint) - 1, 0);
         status = HTTP_STATUS_FOUND;
     }
 

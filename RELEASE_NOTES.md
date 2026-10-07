@@ -1,10 +1,40 @@
 # Release Notes
 
-## UNRELEASED
+## 2.95
+
+Fixed a bug in the notification page that made snac hang forever while trying to read abnormally big files.
+
+Improved support for text-only web browsers: it's now possible to configure a set of web browser user-agent strings that will receive simpler HTML in the private timeline web UI. Basically, it consists in avoiding `details` / `summary` HTML tags as much as possible.
+
+Added some fixes to media proxy code.
+
+Fixed EmojiReact code to allow any emoticon defined in `emojis.json`, not only those with colon-wrapped identifiers.
+
+Fixed a bug in notification filtering (paging was sometimes incorrect).
+
+Added a notification filter for Webmentions.
+
+Mastodon API: Don't return reactions count as string (contributed by mkljczk), implemented GET /v1/media (contributed by clairemont).
+
+Fixed bug in documentation examples (contributed by Sprite_tm).
+
+Updated Ukrainian and Russian translations (contributed by wincentbalin and koru).
+
+## 2.94
 
 The author of a replied post is no longer added to the CC: line, as it does not have much sense.
 
-Mastodon API: avatars and headers can be deleted (contributed by bm90).
+Fixed mentions for users with hyphens in their identifiers.
+
+Unlisted replies to unknown posts were being skipped from the timeline, so don't do that.
+
+If an actor marked as broken gets a post boosted (proving that is [back] functioning), it's unmarked as such.
+
+Don't try (and fail) to parse non-UTC dates in posts (I'll provide a real fix eventually).
+
+Fixed a redirection loop in the `/users` alias.
+
+Mastodon API: fixed a bug that made changing the sensitive content string impossible, avatars and headers can be deleted (contributed by bm90).
 
 Updated Czech and Italian translations (contributed by pmjv and fidiben).
 

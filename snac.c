@@ -93,7 +93,7 @@ int validate_uid(const char *uid)
         return 0;
 
     while (*uid) {
-        if (!(isalnum(*uid) || *uid == '_'))
+        if (!(isalnum((int)*uid) || *uid == '_'))
             return 0;
 
         uid++;
@@ -127,7 +127,7 @@ void srv_log(xs_str *str)
 }
 
 
-void snac_log(snac *snac, xs_str *str)
+void snac_log(const snac *snac, xs_str *str)
 /* prints a user debugging information */
 {
     xs *o_str = str;

@@ -96,6 +96,9 @@ int activitypub_request(snac *user, const char *url, xs_dict **data)
             NULL, 0, &status, &payload, &p_size, 0);
     }
 
+    if (p_size >= 100000)
+        return HTTP_STATUS_BAD_REQUEST;
+
     if (valid_status(status)) {
         /* ensure it's ActivityPub data */
         ctype = xs_dict_get(response, "content-type");
@@ -940,7 +943,7 @@ xs_str *process_tags(snac *snac, const char *content, xs_list **tag)
         /* use this same server */
         def_srv = xs_dup(xs_dict_get(srv_config, "host"));
 
-    split = xs_regex_split(content, "(@[A-Za-z0-9_]+(@[A-Za-z0-9\\.-]+)?|&#[0-9]+;|#(_|[^[:punct:][:space:]])+)");
+    split = xs_regex_split(content, "(@[A-Za-z0-9_-]+(@[A-Za-z0-9\\.-]+)?|&#[0-9]+;|#(_|[^[:punct:][:space:]])+)");
 
     p = split;
     while (xs_list_iter(&p, &v)) {
@@ -1607,7 +1610,7 @@ xs_dict *msg_emoji_init(snac *snac, const char *mid, const char *eid_o)
 {
     xs_dict *n_msg = msg_admiration(snac, mid, "EmojiReact");
 
-    xs *eid = xs_strip_chars_i(xs_dup(eid_o), ":");
+    xs *eid = xs_dup(eid_o);
     xs *content = NULL;
     xs *tag = xs_list_new();
     xs *dict = xs_dict_new();
@@ -1623,14 +1626,14 @@ xs_dict *msg_emoji_init(snac *snac, const char *mid, const char *eid_o)
         content = xs_dup(eid);
 
     else if (*eid == '%') {
-        content = xs_url_dec_emoji(xs_dup(eid));
+        content = xs_url_dec_emoji(eid);
         if (content == NULL) {
             xs_free(n_msg);
             return NULL;
         }
     }
     else {
-        content = xs_fmt(":%s:", eid);
+        content = xs_dup(eid);
         const char *emo = xs_dict_get(emjs, content);
 
         if (emo == NULL) {
@@ -2594,7 +2597,7 @@ int process_input_message(snac *snac, const xs_dict *msg, const xs_dict *req)
     }
 
     /* this instance is alive */
-    instance_failure(actor, 2);
+    instance_failure(actor, OP_DEL);
 
     /* question votes may not have a type */
     if (xs_is_null(type))
@@ -2813,6 +2816,10 @@ int process_input_message(snac *snac, const xs_dict *msg, const xs_dict *req)
             utype = "Follow";
         }
 
+        if (strcmp(actor, key_id)) {
+            snac_log(snac, xs_fmt("Undo: mismatched actor '%s' and key '%s'", actor, key_id));
+        }
+        else
         if (strcmp(utype, "Follow") == 0) { /** **/
             if (!id) {
                 snac_log(snac, xs_fmt("no id (msg.object.object) when "
@@ -2836,10 +2843,9 @@ int process_input_message(snac *snac, const xs_dict *msg, const xs_dict *req)
         }
         /* *key emojis are like w/ Emoji tag */
         else
-        if ((isEmoji || strcmp(utype, "EmojiReact") == 0) &&
-                (content && strcmp(content, "♥") != 0)) {
+        if (isEmoji || strcmp(utype, "EmojiReact") == 0) {
             const xs_val *mid = xs_dict_get(object, "id");
-            int status = object_rm_emoji_react((char *)id, mid);
+            int status = object_rm_emoji_react(id, mid);
             /* ensure *key notifications type */
             utype = "EmojiReact";
 
@@ -3029,7 +3035,7 @@ int process_input_message(snac *snac, const xs_dict *msg, const xs_dict *req)
                 const char *who = get_atto(a_msg);
 
                 /* got the admired object: instance is [back] online */
-                instance_failure(object, 2);
+                instance_failure(object, OP_DEL);
 
                 if (who && !is_muted(snac, who)) {
                     /* bring the actor */
@@ -3054,7 +3060,7 @@ int process_input_message(snac *snac, const xs_dict *msg, const xs_dict *req)
                         followed_hashtag_distribute(a_msg);
 
                         /* actor is [back] alive */
-                        actor_failure(who, 2);
+                        actor_failure(who, OP_DEL);
 
                         do_notify = 1;
                     }
@@ -3461,7 +3467,7 @@ void process_user_queue_item(snac *user, xs_dict *q_item)
         const char *actor = xs_dict_get(q_item, "actor");
         double mtime = object_mtime(actor);
 
-        if (actor_failure(actor, 0) == -1) {
+        if (actor_failure(actor, OP_CHECK) == -1) {
             /* actor is broken beyond repair */
             snac_debug(user, 1, xs_fmt("actor_refresh skipped broken actor %s", actor));
         }
@@ -3478,16 +3484,16 @@ void process_user_queue_item(snac *user, xs_dict *q_item)
                 actor_add(actor, actor_o);
 
                 /* mark actor and instance as working */
-                actor_failure(actor, 2);
-                instance_failure(actor, 2);
+                actor_failure(actor, OP_DEL);
+                instance_failure(actor, OP_DEL);
             }
             else {
                 if (status == HTTP_STATUS_GONE || status == HTTP_STATUS_NOT_FOUND) {
-                    actor_failure(actor, 1);
+                    actor_failure(actor, OP_ADD);
                     snac_log(user, xs_fmt("actor_refresh marking actor %s as broken %d", actor, status));
                 }
                 else {
-                    actor_failure(actor, 2);
+                    actor_failure(actor, OP_DEL);
                     object_touch(actor);
                 }
             }
@@ -3604,7 +3610,7 @@ void process_queue_item(xs_dict *q_item)
             return;
         }
 
-        if (instance_failure(inbox, 0)) {
+        if (instance_failure(inbox, OP_CHECK)) {
             srv_debug(1, xs_fmt("output message error: too many failures for instance %s", inbox));
             return;
         }
@@ -3621,7 +3627,7 @@ void process_queue_item(xs_dict *q_item)
         status = send_to_inbox_raw(keyid, seckey, inbox, msg, &payload, &p_size, timeout);
 
         /* register or clear a value for this instance */
-        instance_failure(inbox, valid_status(status) ? 2 : 1);
+        instance_failure(inbox, valid_status(status) ? OP_DEL : OP_ADD);
 
         if (payload) {
             if (p_size > 1024) {
@@ -3951,7 +3957,7 @@ int activitypub_get_handler(const xs_dict *req, const char *q_path,
     uid = xs_list_get(l, 1);
     if (!user_open(&snac, uid)) {
         /* invalid user */
-        status = grave(uid, 0) ? HTTP_STATUS_GONE : HTTP_STATUS_NOT_FOUND;
+        status = grave(uid, OP_CHECK) ? HTTP_STATUS_GONE : HTTP_STATUS_NOT_FOUND;
         srv_debug(1, xs_fmt("activitypub_get_handler bad user %s %d", uid, status));
         return status;
     }
@@ -4107,6 +4113,12 @@ int activitypub_post_handler(const xs_dict *req, const char *q_path,
         xs_str_in(i_ctype, "application/ld+json") == -1)
         return 0;
 
+    if (p_size >= 100000) {
+        *body  = xs_str_new("too big");
+        *ctype = "text/plain";
+        return HTTP_STATUS_BAD_REQUEST;
+    }
+
     /* decode the message */
     xs *msg = xs_json_loads(payload);
     const char *id = xs_dict_get(msg, "id");
@@ -4151,7 +4163,7 @@ int activitypub_post_handler(const xs_dict *req, const char *q_path,
     const char *uid = xs_list_get(l, 1);
     if (!user_open(&snac, uid)) {
         /* invalid user */
-        status = grave(uid, 0) ? HTTP_STATUS_GONE : HTTP_STATUS_NOT_FOUND;
+        status = grave(uid, OP_CHECK) ? HTTP_STATUS_GONE : HTTP_STATUS_NOT_FOUND;
         srv_debug(1, xs_fmt("activitypub_post_handler bad user %s %d", uid, status));
         return status;
     }
