@@ -1,0 +1,228 @@
+---
+# Builds snac and restarts the instance.
+#
+#   cd deploy
+#   ansible-playbook site.yml --syntax-check
+#   ansible-playbook site.yml            # asks for the sudo password
+#
+# There are no releases here on purpose. snac is one binary at a fixed path that
+# the unit names directly, so a deploy is: build it, move it into place, restart.
+# The build that was running is kept beside it as snac.prev, which is what makes
+# rolling back a single `mv` instead of a rebuild.
+#
+# The instance directory is left alone, with exactly one deliberate exception
+# documented at the theme task below. Everything else in it belongs to snac.
+- name: Deploy snac  # noqa: name[casing] -- the product name is lowercase everywhere
+  hosts: snac
+  become: true
+
+  vars:
+    repo_root: "{{ playbook_dir }}/.."
+    revision_file: "{{ snac_prefix }}/.deployed-revision"
+  handlers:
+    # A deploy is not live until the process is restarted; handlers run once, at
+    # the flush below, so installing the unit and building the binary together
+    # still cause one restart.
+    - name: Restart snac
+      ansible.builtin.systemd:
+        name: "{{ snac_unit }}"
+        state: restarted
+        daemon_reload: true
+
+  tasks:
+    # ------------------------------------------------------------ the source --
+    - name: Point the checkout at the fork  # noqa: command-instead-of-module
+      ansible.builtin.command:
+        cmd: git remote set-url origin {{ snac_repo }}
+        chdir: "{{ snac_prefix }}"
+      changed_when: false
+
+    - name: Fetch {{ snac_branch }}  # noqa: command-instead-of-module
+      ansible.builtin.command:
+        cmd: git fetch --prune origin {{ snac_branch }}
+        chdir: "{{ snac_prefix }}"
+      changed_when: false
+
+    # This checkout is a build directory, not somebody's working copy: it is
+    # reset to exactly what origin has, so an edit made on the host by hand can
+    # never end up inside the binary that gets installed.
+    - name: Check it out  # noqa: command-instead-of-module
+      ansible.builtin.command:
+        cmd: git checkout --force -B {{ snac_branch }} origin/{{ snac_branch }}
+        chdir: "{{ snac_prefix }}"
+      changed_when: false
+
+    - name: Which revision is that?  # noqa: command-instead-of-module
+      ansible.builtin.command:
+        cmd: git rev-parse HEAD
+        chdir: "{{ snac_prefix }}"
+      changed_when: false
+      check_mode: false
+      register: revision
+
+    - name: Which revision is installed?
+      ansible.builtin.slurp:
+        src: "{{ revision_file }}"
+      register: installed
+      failed_when: false
+
+    - name: Note whether anything actually changed
+      ansible.builtin.set_fact:
+        deployed_revision: "{{ revision.stdout | trim }}"
+        already_current: >-
+          {{ installed.content is defined
+             and (installed.content | b64decode | trim) == (revision.stdout | trim) }}
+
+    # ------------------------------------------------------------- the build --
+    - name: Build and install the new revision
+      when: not already_current | bool
+      block:
+        # The running binary is this very path, and a linker cannot write to a
+        # file that is being executed. Renaming it out of the way first costs
+        # nothing -- the running process keeps the inode it was started from --
+        # and it doubles as the rollback, because the previous build stays behind
+        # as snac.prev without another build.
+        - name: Move the running binary aside
+          ansible.builtin.command:
+            cmd: mv -f {{ snac_bin }} {{ snac_bin }}.prev
+            removes: "{{ snac_bin }}"
+          changed_when: true
+          check_mode: false
+
+        # make writes ./snac, which is snac_bin, so there is no separate install
+        # step. curl and openssl headers are in the image (libcurl4-openssl-dev,
+        # libssl-dev), which is why nothing is installed here.
+        - name: Build it  # noqa: command-instead-of-module
+          ansible.builtin.command:
+            cmd: make
+            chdir: "{{ snac_prefix }}"
+          environment:
+            # Predictable diagnostics; the CFLAGS already include warnings.
+            LC_ALL: C
+          changed_when: true
+          check_mode: false
+
+        - name: Remember what is installed
+          ansible.builtin.copy:
+            content: "{{ deployed_revision }}\n"
+            dest: "{{ revision_file }}"
+            owner: root
+            group: root
+            mode: "0644"
+      rescue:
+        # A build that failed must not leave the host without a binary: the unit
+        # runs snac_bin, and the next boot or crash would restart nothing.
+        - name: Put the previous binary back
+          ansible.builtin.command:
+            cmd: mv -f {{ snac_bin }}.prev {{ snac_bin }}
+            removes: "{{ snac_bin }}.prev"
+          changed_when: true
+
+        - name: Say what happened
+          ansible.builtin.fail:
+            msg: >-
+              the build failed, so the previous binary was put back as
+              {{ snac_bin }}. Nothing was restarted and the instance is still
+              serving the old build.
+
+    # ------------------------------------------------------------- the theme --
+    # The one file inside the instance directory this repository owns. It only
+    # ever existed on the host -- snac writes its own default when the file is
+    # missing and never touches it again -- so it is tracked as theme/style.css
+    # and installed here. snac reads it on every page render (html.c), so this
+    # takes effect immediately and needs no restart.
+    - name: Install the theme
+      ansible.builtin.copy:
+        src: "{{ repo_root }}/theme/style.css"
+        dest: "{{ snac_theme }}"
+        owner: "{{ snac_user }}"
+        group: "{{ snac_group }}"
+        mode: "0644"
+
+    # ----------------------------------------------------------- the service --
+    - name: Install the unit
+      ansible.builtin.copy:
+        src: "{{ repo_root }}/systemd/{{ snac_unit }}.service"
+        dest: "/etc/systemd/system/{{ snac_unit }}.service"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart snac
+
+    - name: Start it at boot
+      ansible.builtin.systemd:
+        name: "{{ snac_unit }}"
+        enabled: true
+        daemon_reload: true
+
+    # Everything is in place: restart now, so the checks below test the build
+    # that was just made rather than the process still running the old one.
+    - name: Apply the restart
+      ansible.builtin.meta: flush_handlers
+
+    # ---------------------------------------------------------------- verify --
+    - name: Prove the deploy works
+      when: not ansible_check_mode
+      block:
+        - name: What is the service doing now?
+          ansible.builtin.service_facts:
+
+        - name: Note its state
+          ansible.builtin.set_fact:
+            snac_state: "{{ ansible_facts.services.get(snac_unit ~ '.service', {}).get('state') }}"
+
+        # The one failure worth naming. A newer snac can demand a storage-layout
+        # upgrade, and that migration is not something a deploy may run on its
+        # own: the manual is explicit that doing it while a process serves the
+        # same directory can "break everything". Stop here instead, with the
+        # previous binary still on the host and the instance's data untouched.
+        - name: Does it want a layout upgrade?  # noqa: command-instead-of-module
+          ansible.builtin.shell:
+            cmd: |
+              set -o pipefail
+              journalctl -u {{ snac_unit }} -n 50 --no-pager | grep -c 'layout upgrade needed' || true
+            executable: /bin/bash
+          changed_when: false
+          register: upgrade_demand
+          when: snac_state != 'running'
+
+        - name: Stop, and say what to do about it
+          ansible.builtin.fail:
+            msg: >-
+              snac refused to start and asked for a storage-layout upgrade. This
+              playbook will not run that migration: take a backup first
+              (ansible-playbook backup.yml), then stop the service and run
+              `snac upgrade {{ snac_basedir }}` by hand with nothing else
+              touching the directory. If you would rather not, the previous
+              binary is at {{ snac_bin }}.prev and `mv {{ snac_bin }}.prev
+              {{ snac_bin }}` plus a restart puts it back.
+          when:
+            - snac_state != 'running'
+            - upgrade_demand.stdout | trim | int > 0
+
+        - name: Ask for the site through certflow  # noqa: command-instead-of-module
+          ansible.builtin.command:
+            cmd: >-
+              curl -s -o /dev/null -w '%{http_code}' --max-time 15
+              --resolve {{ snac_probe_host }}:443:127.0.0.1
+              https://{{ snac_probe_host }}/
+          changed_when: false
+          register: probe
+
+        - name: The instance is serving and the unit is in the state we expect
+          ansible.builtin.assert:
+            that:
+              - probe.stdout == '200'
+              - snac_state == 'running'
+              - ansible_facts.services[snac_unit ~ '.service'].get('status') == 'enabled'
+            fail_msg: >-
+              {{ snac_probe_host }} answered {{ probe.stdout }}, service looks
+              like {{ snac_state }} - check: journalctl -u {{ snac_unit }} -n 50
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg:
+          - "revision: {{ deployed_revision | truncate(12, true, '') }} ({{ 'unchanged, not rebuilt' if already_current | bool else 'built and installed' }})"
+          - "binary:   {{ snac_bin }} (previous kept as {{ snac_bin }}.prev)"
+          - "service:  {{ snac_unit }} running and enabled"
+          - "site:     https://{{ snac_probe_host }} answered {{ probe.stdout | default('(not checked)') }}"

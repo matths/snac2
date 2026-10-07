@@ -131,6 +131,36 @@ See the LICENSE file for details.
 
 See the CONTRIBUTING.md file for details.
 
+## Deploying this fork
+
+This fork runs one instance, `social.dittgen.name`, on a host where the binary is
+built from the `production` branch and run by systemd. The tooling lives in
+[deploy/](./deploy/) and needs `ansible-core` plus an SSH config entry for the host:
+
+```bash
+cd deploy
+ansible-playbook backup.yml    # snapshot the instance, fetch it to ~/.snac2/
+ansible-playbook site.yml      # build `production`, install it, restart
+```
+
+`production` is what the host runs. The Mastodon-archive import work lives on
+`feat/import-mastodon-activitypub-archive` and is merged into it deliberately.
+
+**Take a backup before deploying anything.** `backup.yml` stops the service, tars
+the instance directory as `snac`, and brings the result back here under a
+timestamped name. It is tar rather than zip on purpose: snac deletes an object
+when its link count drops below 2, so the hard links from `object/` into each
+user's timeline directories *are* its reference counting. A zip stores every
+file's bytes separately, and a tree restored from one has a link count of 1
+everywhere — snac would then garbage collect live posts. The playbook counts the
+hard links in the archive and fails when there are none.
+
+`site.yml` never touches the instance directory, with one exception: the theme at
+`theme/style.css`. It only ever existed on the host, so it is versioned here and
+installed on every deploy. snac reads it on each page render, so a theme change
+needs no restart. The build that was serving is kept beside the binary as
+`snac.prev`, which makes rolling back a single `mv` rather than a rebuild.
+
 ## Author
 
 grunfink [@grunfink@comam.es](https://comam.es/snac/grunfink) with the help of others.

@@ -14,6 +14,12 @@ snac_basedir: "{{ snac_home }}/data"
 snac_socket: "{{ snac_home }}/socket"
 snac_unit: snac
 
+# Where a deploy builds from: the fork, on the branch that exists to say what the
+# host runs. The Mastodon-archive import lives on its own branch and is
+# deliberately not part of production.
+snac_repo: https://github.com/matths/snac2.git
+snac_branch: production
+
 # Where snac is built, and the binary the unit runs -- the unit names that path
 # directly, so it is part of the interface. Keep in step with
 # systemd/snac.service.
