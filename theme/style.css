@@ -73,7 +73,7 @@ body {
      two columns stopped matching the other pages. A zero minimum means the
      tracks keep their 1:2 share on every page. */
   grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
-  grid-template-rows: repeat(6, max-content) 1fr;
+  grid-template-rows: repeat(7, max-content) 1fr;
   gap: 0 1.5em;
   align-items: start;
   /* Anchors .snac-top-nav > .snac-avatar, which sits inside the nav but belongs
@@ -112,7 +112,7 @@ textarea {
   text-align: center;
   width: 10em;
   padding: 0.3em 0;
-  color: var(--color-foreground);
+  color: #ffffff;
   font-weight: 600;
 }
 
@@ -131,9 +131,9 @@ input[type="date"],
 input[type="time"],
 textarea {
   width: 100%;
-  background-color: var(--color-background);
+  background-color: #ffffff;
   color: var(--color-foreground);
-  border: 1px solid var(--color-background);
+  border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
   font-size: inherit;
   padding: 0.3em;
@@ -164,19 +164,42 @@ textarea:focus,
 }
 
 select {
-  background-color: var(--color-background);
+  background-color: #ffffff;
   color: var(--color-foreground);
-  border: 1px solid var(--color-background);
+  border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
   font-size: inherit;
   padding: 0.3em;
   width: 49%;
 }
 
+.snac-search-box {
+  position: relative;
+}
+
 .snac-search-box>input {
-  border: 1px solid var(--color-secondary);
+  border: 1px solid var(--color-border);
   line-height: 1.75;
   margin-top: 0.6em;
+  margin-bottom: 0.6em;
+  padding-right: 2em;
+  background-color: #ffffff;
+}
+
+/* The magnifier is drawn on the form and not on the input: an <input> is a
+   replaced element and renders no pseudo-element of its own. The form is the
+   nearest positioned ancestor and the input fills it, so anchoring to the right
+   lands on the input's right edge. pointer-events lets clicks through to the
+   field underneath. */
+.snac-search-box::after {
+  content: "🔍";
+  position: absolute;
+  right: 0.6em;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 14px;
+  line-height: 1;
+  pointer-events: none;
 }
 
 .snac-top-user-banner {
@@ -246,7 +269,7 @@ img {
 
 #clear {
   grid-column: 1 / 2;
-  grid-row: 6;
+  grid-row: 7;
 }
 
 #clear input {
@@ -269,18 +292,47 @@ img {
 }
 
 input[class^="snac-btn-"] {
-  background: var(--color-background);
-  border: none;
-  border-radius: 4px;
+  background: var(--color-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
   padding: 2px 8px;
   font-size: 13px;
   font-weight: 400;
-  color: var(--color-muted);
+  color: var(--color-foreground);
   cursor: pointer;
 }
 
 input[class^="snac-btn-"]:hover {
   background: var(--color-btn-hover);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+/* The counterparts -- Unlike, Unboost, Unbookmark, Unpin, Unfollow, Unmute,
+   Unlimit -- are only shown when the state is already on, so they are filled
+   rather than outlined. That is the second variation: a filled button reads as
+   "this is already the case" next to the outlined action it replaces. */
+input.snac-btn-unlike,
+input.snac-btn-unboost,
+input.snac-btn-unbookmark,
+input.snac-btn-unpin,
+input.snac-btn-unfollow,
+input.snac-btn-unmute,
+input.snac-btn-unlimit {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #ffffff;
+}
+
+input.snac-btn-unlike:hover,
+input.snac-btn-unboost:hover,
+input.snac-btn-unbookmark:hover,
+input.snac-btn-unpin:hover,
+input.snac-btn-unfollow:hover,
+input.snac-btn-unmute:hover,
+input.snac-btn-unlimit:hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
 }
 
 .snac-post-header {
@@ -384,7 +436,7 @@ input[class^="snac-btn-"]:hover {
 .snac-top-controls {
   padding-bottom: 1.5em;
   grid-column: 1 / 2;
-  grid-row: 3;
+  grid-row: 5;
   height: fit-content;
   scrollbar-width: none;
   overflow-y: scroll;
@@ -427,24 +479,71 @@ input[class^="snac-btn-"]:hover {
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
   background-color: var(--color-secondary);
-  padding: 0.5em 1.5em;
+  padding: 0.5em 0.75em;
+  margin: 0.5em 0;
+}
+
+/* The react / reply / edit / DM forms are <details>, and they are drawn like the
+   ones in the left column: a box around the form, the label as the opener, and
+   a + pushed to the right edge that becomes an ⨯ once the form is open. */
+.snac-controls details {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  background-color: var(--color-secondary);
+  padding: 0.5em 0.75em;
   margin: 0.5em 0;
 }
 
 .snac-controls summary {
   list-style: none;
-  color: var(--color-primary);
-  text-decoration: none;
+  display: flex;
   cursor: pointer;
 }
 
 .snac-controls summary:hover {
-  color: var(--color-primary-hover);
+  color: var(--color-primary);
+}
+
+.snac-controls details>summary::after {
+  content: "+";
+  margin-left: auto;
+}
+
+.snac-controls details[open]>summary::after {
+  content: "⨯";
 }
 
 .snac-controls details[open]>summary {
   margin-bottom: 0.3em;
-  text-decoration: underline;
+  color: var(--color-primary);
+}
+
+/* The expanded form. The fields are already white with a border; this only
+   gives the block room and keeps the inline labels (Visibility:, Draft:, ...)
+   apart from one another. */
+.snac-note {
+  margin: 0.5em 0 0.2em;
+}
+
+.snac-note label {
+  margin-right: 0.6em;
+}
+
+/* The react form's submit carries no class of its own, so it would otherwise be
+   a stock grey button standing next to the styled Post button. */
+.snac-note input[type="submit"]:not(.button) {
+  background: var(--color-primary);
+  border: none;
+  border-radius: var(--border-radius);
+  color: #ffffff;
+  padding: 0.3em 1em;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.snac-note input[type="submit"]:not(.button):hover {
+  background: var(--color-primary-hover);
 }
 
 /* Sits below the profile card. It used to be sticky, but a sticky box only
@@ -486,7 +585,7 @@ input[class^="snac-btn-"]:hover {
   grid-column: 2 / 3;
   /* Spans every sidebar row, so the stream is exactly as tall as its content
      and the sidebar items stay at the top of the page. */
-  grid-row: 1 / 8;
+  grid-row: 1 / 9;
   max-width: 100%;
 }
 
@@ -675,7 +774,7 @@ input[class^="snac-btn-"]:hover {
   padding: 0 2em;
   margin-bottom: 1.2em;
   grid-column: 1 / 2;
-  grid-row: 5;
+  grid-row: 6;
   align-self: start;
 }
 
@@ -753,7 +852,7 @@ input[class^="snac-btn-"]:hover {
 .snac-footer {
   font-size: 75%;
   grid-column: 1 / 2;
-  grid-row: 7;
+  grid-row: 8;
   align-self: end;
   position: sticky;
   bottom: 0;
@@ -782,41 +881,73 @@ input[class^="snac-btn-"]:hover {
 
 /* columns: 2 rather than 3 -- the sidebar is narrower than the old right-hand
    column was, and a third column of 7em-wide links would not fit. */
+/* The lists -- Pinned, Admirations, Bookmarks, Drafts, Scheduled posts -- are a
+   stack of links above the New Post boxes, not the grid of 7em blocks they used
+   to be. */
 .snac-list-of-lists {
   list-style: none;
   grid-column: 1 / 2;
   grid-row: 4;
-  margin-top: 1.5em;
-  columns: 2;
+  margin-top: 0.6em;
   height: fit-content;
 }
 
+/* The followed hashtags are the second list-of-lists, and unlike the links above
+   they stay chips: filled, wrapping, and sitting between the search box and the
+   lists. */
 .snac-list-of-lists + .snac-list-of-lists {
-  top: 13.8em;
+  grid-row: 3;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em;
+  margin-top: 0.6em;
 }
 
-.snac-list-of-lists li {
-  list-style-position: inside;
-  margin-bottom: 1em;
+.snac-list-of-lists + .snac-list-of-lists li {
+  margin-bottom: 0;
 }
 
-.snac-list-link {
-  background-color: var(--color-list-link);
-  border-radius: var(--border-radius);
+.snac-list-of-lists + .snac-list-of-lists .snac-list-link {
+  display: inline-block;
+  width: auto;
+  padding: 0.15em 0.6em;
+  font-size: 12px;
+  font-weight: 400;
   text-align: center;
-  width: 7em;
-  padding: 0.2em;
-  display: block;
-  text-transform: capitalize;
-  text-decoration: none;
+  border-radius: 1em;
+  background-color: var(--color-list-link);
   color: var(--color-secondary);
 }
 
-.snac-list-link:hover {
+.snac-list-of-lists + .snac-list-of-lists .snac-list-link:hover {
   background-color: var(--color-primary);
+  color: var(--color-secondary);
+  text-decoration: none;
 }
 
-a[name="snac-more"] {
+.snac-list-of-lists li {
+  margin-bottom: 0.15em;
+}
+
+.snac-list-link {
+  display: block;
+  width: auto;
+  padding: 0;
+  color: var(--color-primary);
+  font-weight: bold;
+  text-align: left;
+  text-decoration: none;
+  text-transform: capitalize;
+}
+
+.snac-list-link:hover {
+  text-decoration: underline;
+}
+
+/* The More... line. snac writes it into a <p> in body only when it has another
+   page to link to: "Back to top - More..." on the timelines, and just "More..."
+   on the notifications page. Both links are drawn as the same wide button. */
+body>p>a {
   display: block;
   background-color: var(--color-secondary);
   color: var(--color-muted);
@@ -831,7 +962,7 @@ a[name="snac-more"] {
   order: -1;
 }
 
-a[name="snac-more"]:hover {
+body>p>a:hover {
   filter: opacity(80%);
 }
 
@@ -840,11 +971,36 @@ body>p {
   display: flex;
   flex-direction: column;
   grid-column: 2 / 3;
-  grid-row: 8;
+  grid-row: 9;
 }
 
-body>p>a:nth-child(1) {
+/* Only the leading link is redundant ("Back to top" on the timelines); the
+   notifications page has a single More... link, which used to be hidden here. */
+body>p>a[name="snac-more"]:first-child {
   display: none;
+}
+
+/* snac writes the "no more unseen posts" mark into the stream where it reaches
+   the already-seen boundary. Centred and muted, so it reads as a status line
+   rather than as stray text. */
+.snac-no-more-unseen-posts {
+  font-size: 75%;
+  color: var(--color-muted);
+  text-align: center;
+  padding: 0.4em 0;
+}
+
+/* The other state of the same thing. The timelines get the More... line only
+   when there is another page; when there is not, this says so in the same slot
+   under the stream, so the foot of the stream reads the same either way. */
+body:has(> a[name="snac-posts"]):not(:has(> p > a)):has(.snac-post)::after {
+  content: "No more posts";
+  grid-column: 2 / 3;
+  grid-row: 9;
+  font-size: 75%;
+  color: var(--color-muted);
+  text-align: center;
+  padding: 0.4em 0;
 }
 
 .snac-post-header>p>a:nth-child(3) {
@@ -875,10 +1031,10 @@ body>p>a:nth-child(1) {
   body {
     height: 100%;
     overflow: hidden;
-    /* An eighth row, max-content: the "Back to top / More" line lives there and
+    /* A ninth, max-content row: the "Back to top / More" line lives there and
        should stay visible under the stream rather than scroll out of the 1fr
        row that the stream itself occupies. */
-    grid-template-rows: repeat(6, max-content) minmax(0, 1fr) max-content;
+    grid-template-rows: repeat(7, max-content) minmax(0, 1fr) max-content;
   }
 
   /* Stretch rather than align to start, so the stream fills its rows and scrolls
@@ -895,7 +1051,7 @@ body>p>a:nth-child(1) {
      fits once the page is window height, so they are given a slice of the window
      and scroll within it instead. */
   .snac-top-controls {
-    max-height: 35vh;
+    max-height: 48vh;
     overflow-y: auto;
   }
 
@@ -917,19 +1073,23 @@ body>p>a:nth-child(1) {
      the nav before the profile card. These orders lead with the sidebar, in the
      order it appears on the desktop, and send the footer last. */
   .snac-top-user {
-    order: -7;
+    order: -8;
   }
 
   .snac-top-nav {
+    order: -7;
+  }
+
+  .snac-list-of-lists + .snac-list-of-lists {
     order: -6;
   }
 
   .snac-top-controls {
-    order: -5;
+    order: -4;
   }
 
   .snac-list-of-lists {
-    order: -4;
+    order: -5;
   }
 
   .snac-history {
